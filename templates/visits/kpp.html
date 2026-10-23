@@ -1,0 +1,38 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "КПП" %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% translate "КПП" %} · {{ today|date:"d E, l" }}</h1>
+  {% if user.checkpoint %}<span class="badge">{{ user.checkpoint }}</span>{% endif %}
+</div>
+
+<form class="searchbar" method="get">
+  <input type="search" name="q" value="{{ q }}" placeholder="{% translate 'ФИО, госномер или ИИН' %}" autocomplete="off" enterkeyhint="search">
+  <button class="btn btn-primary btn-big" style="min-width:auto" type="submit">{% translate "Найти" %}</button>
+</form>
+
+<nav class="tabs">
+  <a href="?tab=expected" class="{% if tab == 'expected' %}active{% endif %}">{% translate "Ожидаются" %}<span class="count">{{ counts.expected }}</span>{% if counts.no_shows %}<span class="count warn" title="{% translate 'Не прибыли' %}">{{ counts.no_shows }}</span>{% endif %}</a>
+  <a href="?tab=on_site" class="{% if tab == 'on_site' %}active{% endif %}">{% translate "На территории" %}<span class="count">{{ counts.on_site }}</span>{% if counts.leaving %}<span class="count warn" title="{% translate 'Убывают сегодня' %}">{{ counts.leaving }}</span>{% endif %}</a>
+  <a href="?tab=trips" class="{% if tab == 'trips' %}active{% endif %}">{% translate "Машины" %}<span class="count">{{ counts.trips }}</span></a>
+  <a href="?tab=tomorrow" class="{% if tab == 'tomorrow' %}active{% endif %}">{% translate "Завтра" %}<span class="count">{{ counts.tomorrow }}</span></a>
+  <a href="?tab=departed" class="{% if tab == 'departed' %}active{% endif %}">{% translate "Убыли сегодня" %}<span class="count">{{ counts.departed }}</span></a>
+  {% if q %}<a href="?q={{ q|urlencode }}" class="active">{% translate "Поиск" %}: {{ q }}</a>{% endif %}
+</nav>
+
+{% include "includes/undo_bar.html" %}
+
+{% if trips %}
+  <h2 class="section-title">{% translate "Машины диспетчера" %} <span class="badge">{{ trips|length }}</span></h2>
+  <div class="people">{% for t in trips %}{% include "visits/_trip_kpp.html" %}{% endfor %}</div>
+{% elif tab == "trips" %}<div class="empty">{% translate "На сегодня машин от диспетчера нет." %}</div>{% endif %}
+
+{% for s in sections %}
+  <h2 class="section-title{% if s.warn %} warn{% endif %}">{{ s.title }} <span class="badge">{{ s.items|length }}</span></h2>
+  {% if s.items %}
+  <div class="people">
+    {% for v in s.items %}{% include "visits/_person_kpp.html" %}{% endfor %}
+  </div>
+  {% elif s.empty %}<div class="empty">{{ s.empty }}</div>{% endif %}
+{% endfor %}
+{% endblock %}

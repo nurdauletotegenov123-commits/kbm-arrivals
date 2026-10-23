@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Отчёты" %}{% endblock %}
+{% block content %}
+<h1>{% translate "Отчёты в Excel" %}</h1>
+<form method="get" class="card">
+  {% include "includes/form_errors.html" %}
+  <div class="filters">
+    {% include "includes/field.html" with field=form.date_from %}
+    {% include "includes/field.html" with field=form.date_to %}
+  </div>
+  <div class="btn-row">
+    {% for key, title in available %}
+      <button class="btn btn-primary" type="submit" name="kind" value="{{ key }}">⬇ {{ title }}</button>
+    {% endfor %}
+  </div>
+  <p class="small muted">{% translate "Файл скачается в формате .xlsx. Каждая выгрузка записывается в журнал." %}</p>
+</form>
+{% endblock %}

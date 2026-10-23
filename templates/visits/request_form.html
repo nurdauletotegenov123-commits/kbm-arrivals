@@ -1,0 +1,64 @@
+{% extends "base.html" %}{% load i18n static assets %}
+{% block title %}{% if is_new %}{% translate "Новая заявка" %}{% else %}{% translate "Заявка" %} №{{ req.number }}{% endif %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% if is_new %}{% translate "Новая заявка" %}{% else %}{% translate "Изменение заявки" %} №{{ req.number }}{% endif %}</h1>
+  {% if not is_new %}<a class="btn" href="{% url 'request_detail' req.pk %}">{% translate "Назад" %}</a>{% endif %}
+</div>
+
+<form method="post" id="request-form" novalidate>
+  {% csrf_token %}
+  {% include "includes/form_errors.html" %}
+  {% if formset.non_form_errors %}<div class="form-errors">{{ formset.non_form_errors }}</div>{% endif %}
+  {% if formset.total_error_count and not form.errors %}<div class="form-errors">{% translate "Проверьте данные людей — ошибки выделены красным." %}</div>{% endif %}
+
+  <div class="card">
+    <h2 style="margin:0 0 1rem">{% translate "Визит" %}</h2>
+    <div class="grid-2">
+      {% include "includes/field.html" with field=form.purpose %}
+      {% include "includes/field.html" with field=form.contact_name %}
+      {% include "includes/field.html" with field=form.contact_phone %}
+      {% include "includes/field.html" with field=form.comment %}
+    </div>
+  </div>
+
+  <div class="page-head" style="margin-bottom:.5rem">
+    <h2 style="margin:0">{% translate "Люди" %} (<span id="people-count">0</span>)</h2>
+  </div>
+  <div class="toolbar">
+    <button type="button" class="btn" id="add-person">+ {% translate "Добавить человека" %}</button>
+    <button type="button" class="btn" id="apply-all" title="{% translate 'Организация, даты, время и все галочки' %}">⇊ {% translate "Скопировать данные первого на всех" %}</button>
+  </div>
+  <div class="import-box toolbar">
+    <span><b>{% translate "Бригада списком из Excel" %}:</b></span>
+    <label class="btn btn-sm" for="import-file" style="margin:0">⬆ {% translate "Выбрать файл .xlsx" %}</label>
+    <input type="file" id="import-file" accept=".xlsx,.xlsm" class="hidden">
+    <a class="small" href="{% url 'import_template' %}">{% translate "Скачать шаблон" %}</a>
+    <div class="import-result small muted" id="import-result" style="flex-basis:100%">{% translate "Даты и галочки, которых нет в файле, будут взяты из первой карточки." %}</div>
+  </div>
+
+  {{ formset.management_form }}
+  <div id="visitor-forms">
+    {% for f in formset.forms %}{% include "visits/_visitor_card.html" %}{% endfor %}
+  </div>
+  <template id="visitor-template">{% with f=formset.empty_form %}{% include "visits/_visitor_card.html" %}{% endwith %}</template>
+  <datalist id="org-list">{% for name in organizations %}<option value="{{ name }}">{% endfor %}</datalist>
+
+  <div class="form-actions">
+    <button class="btn btn-primary btn-big" type="submit">{% translate "Сохранить заявку" %}</button>
+    <a class="btn btn-big" href="{% if is_new %}{% url 'request_list' %}{% else %}{% url 'request_detail' req.pk %}{% endif %}">{% translate "Отмена" %}</a>
+  </div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+  window.REQUEST_FORM = {
+    prefix: "{{ formset.prefix }}",
+    importUrl: "{% url 'import_parse' %}",
+    personLabel: "{% translate 'Человек' %}",
+    importing: "{% translate 'Загрузка…' %}",
+    imported: "{% translate 'Добавлено людей' %}",
+  };
+</script>
+<script src="{% asset 'js/request_form.js' %}"></script>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% load i18n audit_tags %}{% if logs %}
+<div class="table-wrap"><table>
+  <thead><tr><th>{% translate "Время" %}</th><th>{% translate "Кто" %}</th><th>{% translate "Действие" %}</th><th>{% translate "Объект" %}</th><th>{% translate "Изменения" %}</th></tr></thead>
+  <tbody>
+  {% for log in logs %}
+    <tr>
+      <td class="nowrap small">{{ log.created_at|date:"d.m.Y H:i:s" }}</td>
+      <td class="small">{{ log.user|default:log.username|default:"—" }}{% if show_ip and log.ip_address %}<div class="muted">{{ log.ip_address }}</div>{% endif %}</td>
+      <td class="small"><b>{{ log.get_action_display }}</b></td>
+      <td class="small">{{ log.object_repr }}</td>
+      <td class="changes">{% for line in log.changes|format_changes %}<div>{{ line }}</div>{% endfor %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<div class="empty">{% translate "Записей нет." %}</div>{% endif %}

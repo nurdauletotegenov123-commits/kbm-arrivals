@@ -1,0 +1,68 @@
+{% extends "base.html" %}{% load i18n audit_tags %}
+{% block title %}{% translate "Заявка" %} №{{ req.number }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% translate "Заявка" %} №{{ req.number }}{% if req.is_cancelled %} <span class="badge badge-cancelled">{% translate "Отменена" %}</span>{% endif %}</h1>
+  <div class="btn-row">
+    {% if req.can_be_edited %}<a class="btn btn-primary" href="{% url 'request_edit' req.pk %}">{% translate "Изменить" %}</a>
+    <form method="post" action="{% url 'request_cancel' req.pk %}" onsubmit="return confirm('{% translate "Отменить заявку? Будут отменены все, кто ещё не прибыл." %}')">{% csrf_token %}
+      <button class="btn btn-red" type="submit">{% translate "Отменить заявку" %}</button></form>{% endif %}
+    <a class="btn" href="{% url 'request_list' %}">{% translate "К списку" %}</a>
+  </div>
+</div>
+
+<div class="card">
+  <dl class="props">
+    <dt>{% translate "Цель визита" %}</dt><dd>{{ req.purpose }}</dd>
+    <dt>{% translate "Ответственный" %}</dt><dd>{{ req.contact_name }}, <a href="tel:{{ req.contact_phone }}">{{ req.contact_phone }}</a></dd>
+    {% if req.comment %}<dt>{% translate "Комментарий" %}</dt><dd>{{ req.comment|linebreaksbr }}</dd>{% endif %}
+    <dt>{% translate "Создал" %}</dt><dd>{{ req.author }}, {{ req.created_at|date:"d.m.Y H:i" }}</dd>
+  </dl>
+</div>
+
+{% with trips=req.trips %}{% if trips %}
+<h2>{% translate "Транспорт" %}</h2>
+<div class="people">
+  {% for item in trips %}{% with t=item.trip %}
+  <article class="person trip {{ t.state_class }}">
+    <div class="person-head">
+      <div>
+        <div class="person-name">{{ t.get_direction_display }} · {{ t.date|date:"d E, l" }}</div>
+        <div class="person-sub">{% if t.pickup_place %}{{ t.pickup_place }}{% else %}{% translate "Место подачи уточните у водителя" %}{% endif %}</div>
+      </div>
+      <div class="right">{% if t.time %}<div class="person-time">{{ t.time|time:"H:i" }}</div>{% endif %}</div>
+    </div>
+    <div class="person-meta"><span class="plate">{{ t.vehicle_plate }}</span> {{ t.vehicle_make }}</div>
+    <div class="person-meta"><span><span class="k">{% translate "Водитель" %}:</span> {{ t.driver_name }}{% if t.driver_phone %}, <a href="tel:{{ t.driver_phone }}">{{ t.driver_phone }}</a>{% endif %}</span></div>
+    {% if t.comment %}<div class="small muted">💬 {{ t.comment }}</div>{% endif %}
+    <div class="small"><span class="muted">{% translate "Едут" %} ({{ item.people|length }}):</span> {% for v in item.people %}{{ v.full_name }}{% if not forloop.last %}, {% endif %}{% endfor %}</div>
+  </article>
+  {% endwith %}{% endfor %}
+</div>
+{% endif %}{% endwith %}
+
+<h2>{% translate "Люди" %} ({{ visitors|length }})</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>{% translate "ФИО" %}</th><th>{% translate "Документ" %}</th><th>{% translate "Даты" %}</th><th>{% translate "Транспорт" %}</th><th>{% translate "Услуги" %}</th><th>{% translate "КПП" %}</th><th>{% translate "Кэмп" %}</th></tr></thead>
+  <tbody>
+  {% for v in visitors %}
+    <tr class="{{ v.state_class }}">
+      <td><b>{{ v.full_name }}</b><div class="small muted">{{ v.organization }}{% if v.position %} · {{ v.position }}{% endif %}</div></td>
+      <td class="small">{{ v.get_doc_type_display }}<br>{{ v.doc_number }}</td>
+      <td class="nowrap">{{ v.arrival_date|date:"d.m.Y" }}{% if v.arrival_time %} {{ v.arrival_time|time:"H:i" }}{% endif %}<br>→ {{ v.departure_date|date:"d.m.Y" }}</td>
+      <td class="small">{% if v.needs_transport %}
+        <div>{% translate "Привоз" %}: {% if v.arrival_trip %}<span class="plate">{{ v.arrival_trip.vehicle_plate }}</span> {{ v.arrival_trip.vehicle_make }}{% else %}<span class="badge badge-overdue">{% translate "ждёт диспетчера" %}</span>{% endif %}</div>
+        <div>{% translate "Вывоз" %}: {% if v.departure_trip %}<span class="plate">{{ v.departure_trip.vehicle_plate }}</span> {{ v.departure_trip.vehicle_make }}{% else %}<span class="badge badge-overdue">{% translate "ждёт диспетчера" %}</span>{% endif %}</div>
+      {% elif v.vehicle_plate %}<span class="plate">{{ v.vehicle_plate }}</span><br>{{ v.vehicle_make }}{% else %}—{% endif %}</td>
+      <td>{% include "visits/_flags.html" %}</td>
+      <td>{% include "visits/_status.html" %}
+        {% if v.arrived_at %}<div class="small muted">{{ v.arrived_at|date:"d.m H:i" }}{% if v.departed_at %} → {{ v.departed_at|date:"d.m H:i" }}{% endif %}</div>{% endif %}</td>
+      <td>{% if v.needs_camp and not v.is_cancelled %}<span class="badge badge-{{ v.camp_status }}">{{ v.get_camp_status_display }}</span>{% if v.room_display %}<div class="small">{{ v.room_display }}</div>{% endif %}{% else %}—{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+
+<h2>{% translate "История" %}</h2>
+{% include "audit/_log_table.html" with logs=history %}
+{% endblock %}

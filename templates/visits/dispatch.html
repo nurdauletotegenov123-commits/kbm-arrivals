@@ -1,0 +1,118 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Транспорт" %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% translate "Транспорт" %} · {{ today|date:"d E, l" }}</h1>
+  <div class="btn-row">
+    {% for h in horizons %}<a class="btn btn-sm{% if h == days %} btn-primary{% endif %}" href="?tab={{ tab }}&days={{ h }}">{{ h }} {% translate "дн." %}</a>{% endfor %}
+  </div>
+</div>
+
+<div class="stats">
+  <a class="stat{% if counts.today_in %} warn{% endif %}" href="?tab=in"><b>{{ counts.today_in }}</b><span>{% translate "сегодня без машины на привоз" %}</span></a>
+  <a class="stat{% if counts.today_out %} warn{% endif %}" href="?tab=out"><b>{{ counts.today_out }}</b><span>{% translate "сегодня без машины на вывоз" %}</span></a>
+  <a class="stat" href="?tab=in&days={{ days }}"><b>{{ counts.in }}</b><span>{% blocktranslate %}ждут привоза за {{ days }} дн.{% endblocktranslate %}</span></a>
+  <a class="stat" href="?tab=out&days={{ days }}"><b>{{ counts.out }}</b><span>{% blocktranslate %}ждут вывоза за {{ days }} дн.{% endblocktranslate %}</span></a>
+</div>
+
+<nav class="tabs">
+  <a href="?tab=in&days={{ days }}" class="{% if tab == 'in' %}active{% endif %}">{% translate "Привоз" %}{% if counts.in %}<span class="count warn">{{ counts.in }}</span>{% endif %}</a>
+  <a href="?tab=out&days={{ days }}" class="{% if tab == 'out' %}active{% endif %}">{% translate "Вывоз" %}{% if counts.out %}<span class="count warn">{{ counts.out }}</span>{% endif %}</a>
+</nav>
+
+{% for g in groups %}
+  <h2 class="section-title">
+    {{ g.date|date:"l, d E" }}
+    {% if g.date == today %}<span class="badge badge-expected">{% translate "сегодня" %}</span>{% endif %}
+    {% if g.waiting %}<span class="badge badge-overdue">{% blocktranslate with n=g.waiting|length %}без машины: {{ n }}{% endblocktranslate %}</span>{% endif %}
+  </h2>
+
+  {% if g.waiting %}
+  <form class="card assign" method="post" action="{% url 'dispatch_assign' %}" data-assign>
+    {% csrf_token %}
+    <input type="hidden" name="direction" value="{{ tab }}">
+    <input type="hidden" name="date" value="{{ g.date|date:'Y-m-d' }}">
+    <input type="hidden" name="days" value="{{ days }}">
+    <div class="table-wrap assign-people"><table>
+      <thead><tr>
+        <th style="width:1%"><input type="checkbox" checked data-all aria-label="{% translate 'Выбрать всех' %}"></th>
+        <th>{% translate "ФИО" %}</th><th>{% translate "Заявка" %}</th>
+        <th>{% if tab == 'in' %}{% translate "Время" %}{% else %}{% translate "Сейчас" %}{% endif %}</th>
+        <th>{% translate "Ответственный" %}</th>
+      </tr></thead>
+      <tbody>{% for v in g.waiting %}<tr>
+        <td><input type="checkbox" name="visitor" value="{{ v.pk }}" checked aria-label="{{ v.full_name }}"></td>
+        <td><b>{{ v.full_name }}</b><div class="small muted">{{ v.organization }}{% if v.position %} · {{ v.position }}{% endif %}</div></td>
+        <td class="small">№{{ v.request.number }}<div class="muted">{{ v.request.purpose }}</div></td>
+        <td class="nowrap">{% if tab == 'in' %}{{ v.arrival_time|time:"H:i"|default:"—" }}{% else %}{% include "visits/_status.html" %}{% endif %}</td>
+        <td class="small">{{ v.request.contact_name }}<br><a href="tel:{{ v.request.contact_phone }}">{{ v.request.contact_phone }}</a></td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+
+    <div class="assign-box">
+      {% if g.open_trips %}
+      <div class="field assign-pick">
+        <label>{% translate "Куда посадить" %}
+          <select name="trip" data-pick>
+            <option value="">{% translate "Новая машина" %}</option>
+            {% for t in g.open_trips %}<option value="{{ t.pk }}">{{ t.vehicle_plate }} · {{ t.vehicle_make }} · {{ t.driver_name }}{% if t.time %} · {{ t.time|time:"H:i" }}{% endif %}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      {% endif %}
+      <div class="grid assign-new" data-new>
+        <div class="field"><label>{% translate "Марка авто" %}<input type="text" name="new-vehicle_make" placeholder="{% translate 'Например: Hyundai County' %}"></label></div>
+        <div class="field"><label>{% translate "Госномер" %}<input type="text" name="new-vehicle_plate" placeholder="123ABC12" autocapitalize="characters"></label></div>
+        <div class="field"><label>{% translate "Водитель (ФИО)" %}<input type="text" name="new-driver_name"></label></div>
+        <div class="field"><label>{% translate "Телефон водителя" %}<input type="tel" name="new-driver_phone" placeholder="+7 7__ ___ __ __"></label></div>
+        <div class="field"><label>{% translate "Время подачи" %}<input type="time" name="new-time"></label></div>
+        <div class="field assign-place"><label>{% translate "Место подачи" %}<input type="text" name="new-pickup_place" list="places" placeholder="{% if tab == 'in' %}{% translate 'Например: у главного входа в офис' %}{% else %}{% translate 'Например: кэмп, корпус 2' %}{% endif %}"></label></div>
+        <div class="field"><label>{% translate "Комментарий" %}<input type="text" name="new-comment"></label></div>
+      </div>
+      <button class="btn btn-primary btn-big" type="submit">{% if tab == 'in' %}{% translate "Назначить машину на привоз" %}{% else %}{% translate "Назначить машину на вывоз" %}{% endif %}</button>
+    </div>
+  </form>
+  {% endif %}
+
+  {% if g.trips %}
+  <div class="people">
+    {% for t in g.trips %}
+    <article class="person trip {{ t.state_class }}" id="t{{ t.pk }}">
+      <div class="person-head">
+        <div>
+          <div class="person-name"><span class="plate">{{ t.vehicle_plate }}</span> {{ t.vehicle_make }}</div>
+          <div class="person-sub">{% translate "Водитель" %}: {{ t.driver_name }}{% if t.driver_phone %}, <a href="tel:{{ t.driver_phone }}">{{ t.driver_phone }}</a>{% endif %}</div>
+        </div>
+        <div class="right">
+          {% if t.time %}<div class="person-time">{{ t.time|time:"H:i" }}</div>{% endif %}
+          {% include "visits/_trip_status.html" %}
+        </div>
+      </div>
+      {% if t.pickup_place %}<div class="person-meta"><span class="k">{% translate "Место подачи" %}:</span> {{ t.pickup_place }}</div>{% endif %}
+      {% if t.comment %}<div class="small muted">💬 {{ t.comment }}</div>{% endif %}
+      <ol class="passengers">{% for v in t.people %}<li>{{ v.full_name }} <span class="muted small">{{ v.organization }}</span></li>{% empty %}<li class="muted">{% translate "Пассажиров нет" %}</li>{% endfor %}</ol>
+      <div class="person-actions">
+        <a class="btn" href="{% url 'trip_edit' t.pk %}">{% translate "Изменить рейс" %}</a>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% empty %}
+  <div class="empty">{% if tab == 'in' %}{% blocktranslate %}На {{ days }} дн. вперёд привоз никому не нужен или уже назначен.{% endblocktranslate %}{% else %}{% blocktranslate %}На {{ days }} дн. вперёд вывоз никому не нужен или уже назначен.{% endblocktranslate %}{% endif %}</div>
+{% endfor %}
+<datalist id="places">{% for p in places %}<option value="{{ p }}">{% endfor %}</datalist>
+{% endblock %}
+{% block scripts %}
+<script>
+  // «Выбрать всех» и выбор существующей машины вместо новой
+  document.querySelectorAll("[data-assign]").forEach((form) => {
+    const all = form.querySelector("[data-all]");
+    const boxes = form.querySelectorAll("input[name=visitor]");
+    all.addEventListener("change", () => boxes.forEach((b) => (b.checked = all.checked)));
+    const pick = form.querySelector("[data-pick]");
+    const fresh = form.querySelector("[data-new]");
+    if (pick) pick.addEventListener("change", () => fresh.classList.toggle("hidden", !!pick.value));
+  });
+</script>
+{% endblock %}

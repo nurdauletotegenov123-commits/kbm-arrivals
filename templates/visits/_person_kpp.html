@@ -1,0 +1,54 @@
+{% load i18n %}
+<article class="person {{ v.state_class }}" id="v{{ v.pk }}">
+  <div class="person-head">
+    <div>
+      <div class="person-name">{{ v.full_name }}</div>
+      <div class="person-sub">{{ v.organization }}{% if v.position %} · {{ v.position }}{% endif %}</div>
+    </div>
+    <div class="right">
+      {% if v.arrival_time and v.status == "expected" %}<div class="person-time">≈ {{ v.arrival_time|time:"H:i" }}</div>{% endif %}
+      {% include "visits/_status.html" %}
+    </div>
+  </div>
+  <div class="person-meta">
+    {% if show_docs %}<span><span class="k">{{ v.get_doc_type_display }}:</span> <b>{{ v.doc_number }}</b></span>{% endif %}
+    {% if v.vehicle_plate %}<span><span class="plate">{{ v.vehicle_plate }}</span> {{ v.vehicle_make }}</span>{% endif %}
+    <span><span class="k">{% translate "Даты" %}:</span> {{ v.arrival_date|date:"d.m" }}–{{ v.departure_date|date:"d.m" }}</span>
+    {% include "visits/_flags.html" %}
+  </div>
+  {% if v.needs_transport %}{% include "visits/_transport_line.html" %}{% endif %}
+  <div class="person-meta small">
+    <span><span class="k">{% translate "Цель" %}:</span> {{ v.request.purpose }}</span>
+    <span><span class="k">{% translate "Отв." %}:</span> {{ v.request.contact_name }} <a href="tel:{{ v.request.contact_phone }}">{{ v.request.contact_phone }}</a></span>
+    <span class="muted">№{{ v.request.number }}</span>
+  </div>
+  {% if v.request.comment %}<div class="small muted">💬 {{ v.request.comment }}</div>{% endif %}
+  {% if v.is_no_show %}<div class="alert-line">{% blocktranslate with d=v.arrival_date|date:"d.m.Y" %}Ожидался {{ d }} — не прибыл{% endblocktranslate %}</div>{% endif %}
+  {% if v.is_early %}<div class="warn-line">{% blocktranslate with d=v.arrival_date|date:"d.m.Y" %}Ожидается {{ d }} — раньше срока{% endblocktranslate %}</div>{% endif %}
+  {% if v.is_overdue %}<div class="warn-line">{% blocktranslate with d=v.departure_date|date:"d.m.Y" %}Выезд был запланирован на {{ d }}{% endblocktranslate %}</div>{% endif %}
+  {% if v.status != "expected" %}
+  <div class="small muted">
+    {% if v.arrived_at %}{% translate "Прибыл" %}: {{ v.arrived_at|date:"d.m H:i" }}{% if v.arrived_by %} · {{ v.arrived_by }}{% endif %}{% if v.arrived_checkpoint %} · {{ v.arrived_checkpoint }}{% endif %}{% endif %}
+    {% if v.departed_at %}<br>{% translate "Убыл" %}: {{ v.departed_at|date:"d.m H:i" }}{% if v.departed_by %} · {{ v.departed_by }}{% endif %}{% endif %}
+  </div>
+  {% endif %}
+  <div class="person-actions">
+    {% if v.status == "expected" %}
+      <form method="post" action="{% url 'kpp_action' v.pk 'arrive' %}">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn btn-green btn-big" type="submit">✓ {% translate "Прибыл" %}</button>
+      </form>
+    {% elif v.status == "arrived" %}
+      <form method="post" action="{% url 'kpp_action' v.pk 'depart' %}">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn btn-blue btn-big" type="submit">→ {% translate "Убыл" %}</button>
+      </form>
+    {% endif %}
+    {% if v.status == "arrived" or v.status == "departed" %}
+      <form method="post" action="{% url 'kpp_action' v.pk 'undo' %}" onsubmit="return confirm('{% translate "Отменить последнюю отметку?" %}')">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn-link" type="submit">{% translate "Отменить отметку" %}</button>
+      </form>
+    {% endif %}
+  </div>
+</article>

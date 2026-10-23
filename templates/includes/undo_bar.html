@@ -1,0 +1,9 @@
+{% load i18n %}{% if last_action %}
+<div class="undo-bar">
+  <span>✓ {{ last_action.text }}</span>
+  <form method="post" action="{{ last_action.undo_url }}">{% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <button class="btn btn-sm" type="submit">{% translate "Отменить" %}</button>
+  </form>
+</div>
+{% endif %}

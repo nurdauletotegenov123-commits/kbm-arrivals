@@ -1,0 +1,44 @@
+{% load i18n %}
+<article class="person trip {{ t.state_class }}" id="t{{ t.pk }}">
+  <div class="person-head">
+    <div>
+      <div class="person-name"><span class="plate plate-lg">{{ t.vehicle_plate }}</span> {{ t.vehicle_make }}</div>
+      <div class="person-sub">{% translate "Водитель" %}: <b>{{ t.driver_name }}</b>{% if t.driver_phone %}, <a href="tel:{{ t.driver_phone }}">{{ t.driver_phone }}</a>{% endif %}</div>
+    </div>
+    <div class="right">
+      {% if t.time %}<div class="person-time">≈ {{ t.time|time:"H:i" }}</div>{% endif %}
+      {% include "visits/_trip_status.html" %}
+    </div>
+  </div>
+  {% if t.date != today %}<div class="warn-line">{% blocktranslate with d=t.date|date:"d.m.Y" %}Рейс на {{ d }}{% endblocktranslate %}</div>{% endif %}
+  {% if t.pickup_place %}<div class="small"><span class="muted">{% translate "Место подачи" %}:</span> {{ t.pickup_place }}</div>{% endif %}
+  {% if t.comment %}<div class="small muted">💬 {{ t.comment }}</div>{% endif %}
+  {% with people=t.passengers %}
+  <div class="small"><span class="muted">{% if t.is_in %}{% translate "Привозит" %}{% else %}{% translate "Забирает" %}{% endif %} ({{ people|length }}):</span>
+    {% for v in people %}{{ v.full_name }}{% if v.status == "arrived" and t.is_in %} ✓{% endif %}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</div>
+  <div class="person-actions">
+    {% if not t.entered_at %}
+      <form method="post" action="{% url 'kpp_trip_action' t.pk 'enter' %}">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn btn-green btn-big" type="submit">✓ {% translate "Машина въехала" %}</button>
+      </form>
+    {% elif not t.exited_at %}
+      <form method="post" action="{% url 'kpp_trip_action' t.pk 'exit' %}">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn btn-blue btn-big" type="submit">→ {% translate "Машина выехала" %}</button>
+      </form>
+      {% if t.is_in and t.has_expected_passengers %}
+      <form method="post" action="{% url 'kpp_trip_action' t.pk 'passengers' %}" onsubmit="return confirm('{% translate "Отметить всех пассажиров этой машины прибывшими?" %}')">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn btn-big" type="submit">✓ {% translate "Все пассажиры прибыли" %}</button>
+      </form>{% endif %}
+    {% endif %}
+    {% if t.is_marked %}
+      <form method="post" action="{% url 'kpp_trip_action' t.pk 'undo' %}" onsubmit="return confirm('{% translate "Отменить последнюю отметку машины?" %}')">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn-link" type="submit">{% translate "Отменить отметку" %}</button>
+      </form>
+    {% endif %}
+  </div>
+  {% endwith %}
+</article>

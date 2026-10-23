@@ -1,0 +1,7 @@
+{% load i18n %}{% if v.status == "expected" %}
+  {% if v.arrival_trip %}<div class="person-meta"><span class="k">{% translate "Привоз" %}:</span> <span class="plate">{{ v.arrival_trip.vehicle_plate }}</span> {{ v.arrival_trip.vehicle_make }} · {{ v.arrival_trip.driver_name }}</div>
+  {% else %}<div class="warn-line">{% translate "Транспорт ещё не назначен диспетчером" %}</div>{% endif %}
+{% elif v.status == "arrived" %}
+  {% if v.departure_trip %}<div class="person-meta"><span class="k">{% translate "Вывоз" %} {{ v.departure_trip.date|date:"d.m" }}:</span> <span class="plate">{{ v.departure_trip.vehicle_plate }}</span> {{ v.departure_trip.vehicle_make }} · {{ v.departure_trip.driver_name }}</div>
+  {% elif v.departure_date <= today %}<div class="warn-line">{% translate "Машина на вывоз не назначена диспетчером" %}</div>{% endif %}
+{% endif %}

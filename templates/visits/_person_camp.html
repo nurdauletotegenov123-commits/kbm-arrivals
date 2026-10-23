@@ -1,0 +1,58 @@
+{% load i18n %}
+<article class="person {% if v.is_no_show %}st-noshow{% elif v.camp_status == 'checked_in' and v.status == 'departed' %}st-overdue{% elif v.camp_status == 'checked_in' %}st-arrived{% elif v.camp_status == 'checked_out' %}st-departed{% endif %}" id="v{{ v.pk }}">
+  <div class="person-head">
+    <div>
+      <div class="person-name">{{ v.full_name }}</div>
+      <div class="person-sub">{{ v.organization }}{% if v.position %} · {{ v.position }}{% endif %}</div>
+    </div>
+    <div class="right"><span class="badge badge-{{ v.camp_status }}">{{ v.get_camp_status_display }}</span></div>
+  </div>
+  <div class="person-meta">
+    <span><span class="k">{% translate "Проживание" %}:</span> <b>{{ v.arrival_date|date:"d.m" }} – {{ v.departure_date|date:"d.m" }}</b> ({{ v.nights }} {% translate "ноч." %})</span>
+    {% if v.room_display %}<span><span class="k">{% translate "Комната" %}:</span> <b>{{ v.room_display }}</b></span>{% endif %}
+    {% if v.needs_meals %}<span class="badge badge-meal">{{ v.meals_display|capfirst }}</span>{% endif %}
+  </div>
+  <div class="person-meta small">
+    <span><span class="k">{% translate "КПП" %}:</span>
+      {% if v.status == "arrived" %}<span class="badge badge-arrived">✓ {% translate "Прибыл" %} {{ v.arrived_at|date:"H:i" }}{% if v.arrived_at|date:"Ymd" != today|date:"Ymd" %} {{ v.arrived_at|date:"d.m" }}{% endif %}</span>
+      {% elif v.status == "departed" %}<span class="badge badge-departed">{% translate "Убыл" %} {{ v.departed_at|date:"d.m H:i" }}</span>
+      {% elif v.is_no_show %}<span class="badge badge-noshow">{% translate "Не прибыл" %}</span>
+      {% else %}<span class="badge badge-expected">{% translate "Ещё не прибыл" %}{% if v.arrival_time %} (≈{{ v.arrival_time|time:"H:i" }}){% endif %}</span>{% endif %}
+    </span>
+    <span><span class="k">{% translate "Отв." %}:</span> {{ v.request.contact_name }} <a href="tel:{{ v.request.contact_phone }}">{{ v.request.contact_phone }}</a></span>
+  </div>
+  {% if v.request.comment %}<div class="small muted">💬 {{ v.request.comment }}</div>{% endif %}
+  {% if v.camp_status == "checked_in" and v.status == "departed" %}<div class="warn-line">{% translate "Убыл через КПП, но не выселен" %}</div>{% endif %}
+  {% if v.camp_status == "checked_in" and v.departure_date < today %}<div class="warn-line">{% blocktranslate with d=v.departure_date|date:"d.m.Y" %}Выезд был запланирован на {{ d }}{% endblocktranslate %}</div>{% endif %}
+
+  <div class="person-actions">
+    {% if v.camp_status == "waiting" %}
+      <form class="room-form" method="post" action="{% url 'camp_action' v.pk 'check_in' %}">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <input type="text" name="building" value="{{ v.camp_building }}" placeholder="{% translate 'Корпус' %}" aria-label="{% translate 'Корпус' %}">
+        <input type="text" name="room" value="{{ v.camp_room }}" placeholder="{% translate 'Комната' %}" aria-label="{% translate 'Комната' %}" inputmode="numeric">
+        <button class="btn btn-green btn-big" type="submit">✓ {% translate "Заселён" %}</button>
+      </form>
+    {% elif v.camp_status == "checked_in" %}
+      <form method="post" action="{% url 'camp_action' v.pk 'check_out' %}">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn btn-blue btn-big" type="submit">→ {% translate "Выселен" %}</button>
+      </form>
+      <details>
+        <summary class="btn-link">{% translate "Сменить комнату" %}</summary>
+        <form class="room-form mt" method="post" action="{% url 'camp_action' v.pk 'room' %}">{% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <input type="text" name="building" value="{{ v.camp_building }}" placeholder="{% translate 'Корпус' %}">
+          <input type="text" name="room" value="{{ v.camp_room }}" placeholder="{% translate 'Комната' %}">
+          <button class="btn" type="submit">{% translate "Сохранить" %}</button>
+        </form>
+      </details>
+    {% endif %}
+    {% if v.camp_status != "waiting" %}
+      <form method="post" action="{% url 'camp_action' v.pk 'undo' %}" onsubmit="return confirm('{% translate "Отменить последнюю отметку?" %}')">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn-link" type="submit">{% translate "Отменить отметку" %}</button>
+      </form>
+    {% endif %}
+  </div>
+</article>

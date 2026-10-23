@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Журнал действий" %}{% endblock %}
+{% block content %}
+<h1>{% translate "Журнал действий" %}</h1>
+<form method="get" class="card filters">
+  <div class="field"><label>{% translate "Поиск" %}</label><input type="search" name="q" value="{{ f.q }}" placeholder="{% translate 'ФИО, объект, ID' %}"></div>
+  <div class="field"><label>{% translate "Действие" %}</label><select name="action"><option value="">{% translate "Все" %}</option>
+    {% for key, label in actions %}<option value="{{ key }}"{% if f.action == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  <div class="field"><label>{% translate "Пользователь" %}</label><select name="user"><option value="">{% translate "Все" %}</option>
+    {% for u in usernames %}<option{% if f.user == u %} selected{% endif %}>{{ u }}</option>{% endfor %}</select></div>
+  <div class="field"><label>{% translate "С" %}</label><input type="date" name="date_from" value="{{ f.date_from }}"></div>
+  <div class="field"><label>{% translate "По" %}</label><input type="date" name="date_to" value="{{ f.date_to }}"></div>
+  <button class="btn btn-primary" type="submit">{% translate "Показать" %}</button>
+  <a class="btn" href="?">{% translate "Сбросить" %}</a>
+</form>
+{% include "audit/_log_table.html" with logs=page.object_list show_ip=True %}
+{% include "includes/pager.html" %}
+{% endblock %}

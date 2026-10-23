@@ -1,0 +1,4 @@
+{% load i18n %}<span class="badge badge-trip-{{ t.direction }}">{{ t.get_direction_display }}</span>
+{% if t.exited_at %}<span class="badge badge-departed">{% translate "Выехала" %} {{ t.exited_at|date:"H:i" }}</span>
+{% elif t.entered_at %}<span class="badge badge-arrived">{% translate "На территории с" %} {{ t.entered_at|date:"H:i" }}</span>
+{% else %}<span class="badge badge-expected">{% translate "Ещё не въехала" %}</span>{% endif %}

@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% load i18n static assets %}
+{% block title %}{% translate "Вход" %}{% endblock %}
+{% block body_class %} class="login-page"{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <div class="logo-big">
+    <img src="{% asset 'img/logo-full.png' %}" alt="АО «Каражанбасмунай»">
+    <b>АО «Каражанбасмунай»</b><span class="muted">{% translate "Учёт прибытия на месторождение" %}</span>
+  </div>
+  <form method="post" class="card">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="form-errors">{% translate "Неверный логин или пароль." %}</div>{% endif %}
+    <div class="field"><label for="id_username">{% translate "Логин" %}</label>
+      <input type="text" name="username" id="id_username" autocomplete="username" autocapitalize="none" autofocus required value="{{ form.username.value|default:'' }}"></div>
+    <div class="field"><label for="id_password">{% translate "Пароль" %}</label>
+      <input type="password" name="password" id="id_password" autocomplete="current-password" required></div>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button class="btn btn-primary btn-big" style="width:100%" type="submit">{% translate "Войти" %}</button>
+  </form>
+  <p class="muted small" style="text-align:center">{% translate "Нет доступа? Обратитесь к администратору системы." %}</p>
+</div>
+{% endblock %}

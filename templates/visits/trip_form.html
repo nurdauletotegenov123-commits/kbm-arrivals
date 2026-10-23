@@ -1,0 +1,49 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Рейс" %} {{ trip.vehicle_plate }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{{ trip.get_direction_display }} {{ trip.date|date:"d.m.Y" }} · <span class="plate">{{ trip.vehicle_plate }}</span></h1>
+  <a class="btn" href="{% url 'dispatch' %}?tab={{ trip.direction }}">{% translate "К списку" %}</a>
+</div>
+
+<form method="post" class="card">
+  {% csrf_token %}
+  {% include "includes/form_errors.html" %}
+  <div class="grid">
+    {% include "includes/field.html" with field=form.vehicle_make %}
+    {% include "includes/field.html" with field=form.vehicle_plate %}
+    {% include "includes/field.html" with field=form.driver_name %}
+    {% include "includes/field.html" with field=form.driver_phone %}
+    {% include "includes/field.html" with field=form.time %}
+    {% include "includes/field.html" with field=form.pickup_place %}
+    {% include "includes/field.html" with field=form.comment %}
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-primary btn-big" type="submit">{% translate "Сохранить" %}</button>
+    {% with t=trip %}{% include "visits/_trip_status.html" %}{% endwith %}
+  </div>
+</form>
+
+<h2>{% translate "Пассажиры" %} ({{ people|length }})</h2>
+{% if people %}
+<div class="table-wrap"><table>
+  <thead><tr><th>{% translate "ФИО" %}</th><th>{% translate "Заявка" %}</th><th>{% translate "КПП" %}</th><th></th></tr></thead>
+  <tbody>{% for v in people %}<tr>
+    <td><b>{{ v.full_name }}</b><div class="small muted">{{ v.organization }}</div></td>
+    <td class="small">№{{ v.request.number }} · {{ v.request.purpose }}</td>
+    <td>{% include "visits/_status.html" %}</td>
+    <td class="right">
+      <form method="post" action="{% url 'trip_remove' trip.pk v.pk %}">{% csrf_token %}
+        <button class="btn-link" type="submit">{% translate "Убрать из машины" %}</button>
+      </form>
+    </td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<div class="empty">{% translate "В машине никого нет. Добавьте людей на странице «Транспорт» или удалите рейс." %}</div>{% endif %}
+
+{% if not trip.is_marked %}
+<form method="post" action="{% url 'trip_delete' trip.pk %}" class="mt" onsubmit="return confirm('{% translate "Удалить рейс? Люди снова будут без машины." %}')">{% csrf_token %}
+  <button class="btn btn-red" type="submit">{% translate "Удалить рейс" %}</button>
+</form>
+{% endif %}
+{% endblock %}

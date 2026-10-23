@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Обзор" %}{% endblock %}
+{% block content %}
+<div class="page-head"><h1>{% translate "Обзор" %} · {{ today|date:"d E Y" }}</h1>
+  <a class="btn btn-primary" href="{% url 'request_create' %}">+ {% translate "Новая заявка" %}</a></div>
+<div class="stats">
+  <a class="stat" href="{% url 'kpp' %}"><b>{{ stats.expected }}</b><span>{% translate "ожидаются сегодня" %}</span></a>
+  <a class="stat" href="{% url 'kpp' %}?tab=on_site"><b>{{ stats.arrived_today }}</b><span>{% translate "прибыли сегодня" %}</span></a>
+  <a class="stat" href="{% url 'kpp' %}?tab=on_site"><b>{{ stats.on_site }}</b><span>{% translate "на территории" %}</span></a>
+  <a class="stat{% if stats.no_show %} warn{% endif %}" href="{% url 'kpp' %}"><b>{{ stats.no_show }}</b><span>{% translate "не прибыли" %}</span></a>
+  <a class="stat{% if stats.overdue %} warn{% endif %}" href="{% url 'kpp' %}?tab=on_site"><b>{{ stats.overdue }}</b><span>{% translate "просрочен выезд" %}</span></a>
+  <a class="stat" href="{% url 'camp' %}"><b>{{ stats.in_camp }}</b><span>{% translate "в кэмпе" %} ({% blocktranslate with n=stats.camp_today %}заезд: {{ n }}{% endblocktranslate %})</span></a>
+  <a class="stat" href="{% url 'canteen' %}"><b>{{ stats.meals_today }}</b><span>{% translate "на питании сегодня" %}</span></a>
+  <a class="stat{% if stats.no_transport %} warn{% endif %}" href="{% url 'dispatch' %}"><b>{{ stats.no_transport }}</b><span>{% translate "ждут машину (сегодня и завтра)" %}</span></a>
+  <a class="stat" href="{% url 'camp' %}?tab=upcoming"><b>{{ stats.tomorrow }}</b><span>{% translate "ожидаются завтра" %}</span></a>
+</div>
+<h2>{% translate "Последние заявки" %}</h2>
+{% include "visits/_request_table.html" with requests=recent %}
+<p><a href="{% url 'request_list' %}?show=all">{% translate "Все заявки" %} →</a></p>
+{% endblock %}

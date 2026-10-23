@@ -1,0 +1,2 @@
+{% extends "base.html" %}{% load i18n %}
+{% block content %}<div class="card"><h1>{% translate "Нет доступа" %}</h1><p>{% translate "У вашей роли нет доступа к этому разделу." %}</p><a class="btn" href="{% url 'home' %}">{% translate "На главную" %}</a></div>{% endblock %}

@@ -1,0 +1,55 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Столовая" %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% translate "Столовая" %}</h1>
+  <div class="btn-row">
+    <a class="btn btn-sm" href="?from={{ prev|date:'Y-m-d' }}">← {% translate "Неделя" %}</a>
+    <a class="btn btn-sm" href="?">{% translate "Сегодня" %}</a>
+    <a class="btn btn-sm" href="?from={{ next|date:'Y-m-d' }}">{% translate "Неделя" %} →</a>
+    <form method="get" class="btn-row"><input type="date" name="from" value="{{ start|date:'Y-m-d' }}" onchange="this.form.submit()" style="width:auto"></form>
+  </div>
+</div>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>{% translate "Дата" %}</th><th class="num">{% translate "Завтрак" %}</th><th class="num">{% translate "Обед" %}</th><th class="num">{% translate "Ужин" %}</th><th class="num">{% translate "Всего порций" %}</th><th class="num">{% translate "Человек" %}</th><th class="num">{% translate "Не прибыли" %}</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr class="day-row clickable{% if r.date == day %} is-today{% endif %}" onclick="location.href='?from={{ start|date:'Y-m-d' }}&day={{ r.date|date:'Y-m-d' }}#list'">
+      <td><a href="?from={{ start|date:'Y-m-d' }}&day={{ r.date|date:'Y-m-d' }}#list"><b>{{ r.date|date:"D, d.m" }}</b></a>{% if r.date == today %} <span class="badge badge-expected">{% translate "сегодня" %}</span>{% endif %}</td>
+      <td class="num"><b>{{ r.breakfast }}</b></td><td class="num"><b>{{ r.lunch }}</b></td><td class="num"><b>{{ r.dinner }}</b></td>
+      <td class="num">{{ r.total }}</td><td class="num">{{ r.people }}</td>
+      <td class="num">{% if r.no_show %}<span class="badge badge-noshow">{{ r.no_show }}</span>{% else %}—{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="small muted">{% translate "Количество — по заявкам с отметкой «Питание». «Не прибыли» — люди, которые не отметились на КПП в день прибытия (включены в количество)." %}</p>
+
+<h2 id="list">{% translate "Список на" %} {{ day|date:"l, d E Y" }}</h2>
+<div class="big-nums">
+  <div class="stat"><b>{{ day_summary.breakfast }}</b><span>{% translate "завтраков" %}</span></div>
+  <div class="stat"><b>{{ day_summary.lunch }}</b><span>{% translate "обедов" %}</span></div>
+  <div class="stat"><b>{{ day_summary.dinner }}</b><span>{% translate "ужинов" %}</span></div>
+  <div class="stat"><b>{{ day_summary.people }}</b><span>{% translate "человек" %}</span></div>
+</div>
+{% if people %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>{% translate "ФИО" %}</th><th>{% translate "Организация" %}</th><th>{% translate "Завтрак" %}</th><th>{% translate "Обед" %}</th><th>{% translate "Ужин" %}</th><th>{% translate "КПП" %}</th></tr></thead>
+  <tbody>
+  {% for v in people %}
+    <tr class="{% if v.is_no_show %}st-noshow{% endif %}">
+      <td><b>{{ v.full_name }}</b><div class="small muted">{{ v.position }}{% if v.one_day %} · {% translate "однодневный" %}{% endif %}</div></td>
+      <td>{{ v.organization }}</td>
+      <td>{% if v.breakfast %}✓{% endif %}</td><td>{% if v.lunch %}✓{% endif %}</td><td>{% if v.dinner %}✓{% endif %}</td>
+      <td>{% include "visits/_status.html" %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}<div class="empty">{% translate "На этот день питание не заказано." %}</div>{% endif %}
+{% endblock %}

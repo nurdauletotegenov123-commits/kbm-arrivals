@@ -1,0 +1,42 @@
+{% load i18n %}
+<section class="card visitor-card{% if f.is_locked %} is-locked{% endif %}" data-form{% if f.is_locked %} data-locked{% endif %}>
+  {% for h in f.hidden_fields %}{{ h }}{% endfor %}
+  <div class="vc-head">
+    <h3><span data-num></span>{% if f.instance.pk %} · {{ f.instance.full_name }}{% endif %}</h3>
+    <div class="btn-row">
+      {% if f.is_locked %}<span class="badge badge-{{ f.instance.status }}">{{ f.instance.get_status_display }} — {% translate "можно менять только выезд и галочки" %}</span>
+      {% else %}
+        <label class="check" style="min-height:34px;padding:.2rem .6rem;font-weight:400">{{ f.DELETE }} {% if f.instance.pk %}{% translate "Отменить визит" %}{% else %}{% translate "Убрать" %}{% endif %}</label>
+      {% endif %}
+    </div>
+  </div>
+  {{ f.non_field_errors }}
+  <div class="vc-body">
+    <div class="grid">
+      {% include "includes/field.html" with field=f.full_name %}
+      {% include "includes/field.html" with field=f.doc_type %}
+      {% include "includes/field.html" with field=f.doc_number %}
+      {% include "includes/field.html" with field=f.organization_name %}
+      {% include "includes/field.html" with field=f.position %}
+    </div>
+    <div class="grid">
+      {% include "includes/field.html" with field=f.arrival_date %}
+      {% include "includes/field.html" with field=f.arrival_time %}
+      {% include "includes/field.html" with field=f.departure_date %}
+      {% include "includes/field.html" with field=f.vehicle_make %}
+      {% include "includes/field.html" with field=f.vehicle_plate %}
+    </div>
+    <div class="checks">
+      {% include "includes/check.html" with field=f.one_day %}
+      {% include "includes/check.html" with field=f.needs_transport %}
+      {% include "includes/check.html" with field=f.needs_camp %}
+      {% include "includes/check.html" with field=f.needs_meals %}
+    </div>
+    <div class="meals-sub" data-meals>
+      {% include "includes/check.html" with field=f.breakfast %}
+      {% include "includes/check.html" with field=f.lunch %}
+      {% include "includes/check.html" with field=f.dinner %}
+    </div>
+    {{ f.needs_meals.errors }}{{ f.one_day.errors }}{{ f.needs_camp.errors }}
+  </div>
+</section>

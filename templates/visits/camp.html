@@ -1,0 +1,65 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Кэмп" %}{% endblock %}
+{% block content %}
+<div class="page-head"><h1>{% translate "Кэмп" %} · {{ today|date:"d E, l" }}</h1></div>
+
+<div class="stats">
+  <a class="stat" href="?tab=today"><b>{{ counts.arriving }}</b><span>{% translate "заезжают сегодня" %} ({% blocktranslate with n=counts.waiting %}ждут: {{ n }}{% endblocktranslate %})</span></a>
+  <a class="stat" href="?tab=today#leaving"><b>{{ counts.leaving }}</b><span>{% translate "выезжают сегодня" %}</span></a>
+  <a class="stat" href="?tab=living"><b>{{ counts.living }}</b><span>{% translate "проживают сейчас" %}</span></a>
+  <a class="stat" href="?tab=upcoming"><b>{{ counts.tomorrow }}</b><span>{% translate "заезд завтра" %}</span></a>
+  {% if counts.no_shows %}<a class="stat warn" href="?tab=today"><b>{{ counts.no_shows }}</b><span>{% translate "не прибыли" %}</span></a>{% endif %}
+</div>
+
+<form class="searchbar" method="get">
+  <input type="search" name="q" value="{{ q }}" placeholder="{% translate 'Поиск по ФИО или организации' %}" autocomplete="off" enterkeyhint="search">
+  <button class="btn btn-primary btn-big" style="min-width:auto" type="submit">{% translate "Найти" %}</button>
+</form>
+
+<nav class="tabs">
+  <a href="?tab=today" class="{% if tab == 'today' %}active{% endif %}">{% translate "Сегодня" %}</a>
+  <a href="?tab=living" class="{% if tab == 'living' %}active{% endif %}">{% translate "Проживают" %}<span class="count">{{ counts.living }}</span></a>
+  <a href="?tab=upcoming" class="{% if tab == 'upcoming' %}active{% endif %}">{% translate "Ближайшие дни" %}</a>
+  {% if q %}<a class="active" href="?q={{ q|urlencode }}">{% translate "Поиск" %}: {{ q }}</a>{% endif %}
+</nav>
+
+{% include "includes/undo_bar.html" %}
+
+{% if tab == "upcoming" %}
+  <div class="btn-row">
+    <a class="btn btn-sm" href="?tab=upcoming&days=3">3 {% translate "дня" %}</a>
+    <a class="btn btn-sm" href="?tab=upcoming&days=7">7 {% translate "дней" %}</a>
+    <a class="btn btn-sm" href="?tab=upcoming&days=14">14 {% translate "дней" %}</a>
+  </div>
+  {% for d in days %}
+    <h2 class="section-title">{{ d.date|date:"l, d E" }} <span class="badge badge-camp">{% blocktranslate with n=d.items|length %}заезд: {{ n }}{% endblocktranslate %}</span>{% if d.leaving %} <span class="badge">{% blocktranslate with n=d.leaving %}выезд: {{ n }}{% endblocktranslate %}</span>{% endif %}</h2>
+    {% if d.items %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>{% translate "ФИО" %}</th><th>{% translate "Организация" %}</th><th>{% translate "Время" %}</th><th>{% translate "Выезд" %}</th><th>{% translate "Питание" %}</th><th>{% translate "Корпус / комната" %}</th></tr></thead>
+      <tbody>{% for v in d.items %}<tr>
+        <td><b>{{ v.full_name }}</b><div class="small muted">{{ v.position }}</div></td>
+        <td>{{ v.organization }}</td>
+        <td class="nowrap">{{ v.arrival_time|time:"H:i"|default:"—" }}</td>
+        <td class="nowrap">{{ v.departure_date|date:"d.m" }} ({{ v.nights }} {% translate "ноч." %})</td>
+        <td class="small">{{ v.meals_display|default:"—" }}</td>
+        <td>
+          <form class="room-form" method="post" action="{% url 'camp_action' v.pk 'room' %}">{% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <input type="text" name="building" value="{{ v.camp_building }}" placeholder="{% translate 'Корпус' %}" style="min-height:38px;width:6rem">
+            <input type="text" name="room" value="{{ v.camp_room }}" placeholder="{% translate 'Комната' %}" style="min-height:38px;width:6rem">
+            <button class="btn btn-sm" type="submit">{% translate "Сохранить" %}</button>
+          </form>
+        </td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<div class="empty">{% translate "Заездов нет." %}</div>{% endif %}
+  {% endfor %}
+{% else %}
+  {% for s in sections %}
+    <h2 class="section-title{% if s.warn %} warn{% endif %}"{% if forloop.last and tab == 'today' %} id="leaving"{% endif %}>{{ s.title }} <span class="badge">{{ s.items|length }}</span></h2>
+    {% if s.items %}
+    <div class="people">{% for v in s.items %}{% include "visits/_person_camp.html" %}{% endfor %}</div>
+    {% elif s.empty %}<div class="empty">{{ s.empty }}</div>{% endif %}
+  {% endfor %}
+{% endif %}
+{% endblock %}

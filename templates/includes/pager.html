@@ -1,0 +1,7 @@
+{% load i18n %}{% if page.paginator.num_pages > 1 %}
+<div class="pager">
+  {% if page.has_previous %}<a class="btn btn-sm" href="{% querystring page=page.previous_page_number %}">←</a>{% endif %}
+  <span class="muted">{% blocktranslate with n=page.number total=page.paginator.num_pages %}Стр. {{ n }} из {{ total }}{% endblocktranslate %}</span>
+  {% if page.has_next %}<a class="btn btn-sm" href="{% querystring page=page.next_page_number %}">→</a>{% endif %}
+</div>
+{% endif %}

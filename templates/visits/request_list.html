@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Заявки" %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% if user.is_admin_role %}{% translate "Все заявки" %}{% else %}{% translate "Мои заявки" %}{% endif %}</h1>
+  <a class="btn btn-primary btn-big" href="{% url 'request_create' %}">+ {% translate "Новая заявка" %}</a>
+</div>
+<nav class="tabs">
+  <a href="?show=current" class="{% if show == 'current' %}active{% endif %}">{% translate "Актуальные" %}</a>
+  <a href="?show=past" class="{% if show == 'past' %}active{% endif %}">{% translate "Прошедшие" %}</a>
+  <a href="?show=cancelled" class="{% if show == 'cancelled' %}active{% endif %}">{% translate "Отменённые" %}</a>
+  <a href="?show=all" class="{% if show == 'all' %}active{% endif %}">{% translate "Все" %}</a>
+</nav>
+<form class="searchbar" method="get">
+  <input type="hidden" name="show" value="{{ show }}">
+  <input type="search" name="q" value="{{ q }}" placeholder="{% translate 'ФИО, госномер, цель визита' %}">
+  <button class="btn" type="submit">{% translate "Найти" %}</button>
+</form>
+{% include "visits/_request_table.html" with requests=page.object_list %}
+{% include "includes/pager.html" %}
+{% endblock %}

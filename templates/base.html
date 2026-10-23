@@ -1,0 +1,45 @@
+{% load static i18n assets %}<!doctype html>
+{% get_current_language as LANG %}
+<html lang="{{ LANG }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{% translate "Учёт прибытия" %}{% endblock %} · Каражанбасмунай</title>
+  <meta name="theme-color" content="#182025">
+  <link rel="icon" type="image/png" href="{% asset 'img/favicon.png' %}">
+  <link rel="apple-touch-icon" href="{% asset 'img/apple-touch-icon.png' %}">
+  <link rel="preload" href="{% static 'fonts/golos-cyrillic.woff2' %}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{% asset 'css/app.css' %}">
+  {% block head %}{% endblock %}
+</head>
+<body{% block body_class %}{% endblock %}>
+{% if user.is_authenticated %}
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="logo" href="{% url 'home' %}" aria-label="{% translate 'На главную' %}">
+      <img src="{% asset 'img/logo-shield.png' %}" alt="">
+      <span class="logo-text"><b>Каражанбасмунай</b><span>{% translate "Учёт прибытия" %}</span></span>
+    </a>
+    <nav class="nav">
+      {% for item in nav_items %}<a href="{{ item.url }}"{% if item.active %} class="active" aria-current="page"{% endif %}>{{ item.label }}</a>{% endfor %}
+    </nav>
+    <div class="userbox">
+      <a class="user-chip" href="{% url 'own_password' %}" title="{{ user.display_name }} · {{ role_label }} — {% translate 'сменить пароль' %}">
+        <span class="avatar" aria-hidden="true">{{ user.display_name|first|upper }}</span>
+        <span class="who"><b>{{ user.display_name }}</b><small>{{ role_label }}</small></span>
+      </a>
+      <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="logout" type="submit">{% translate "Выйти" %}</button></form>
+    </div>
+  </div>
+</header>
+{% endif %}
+<main>
+  {% if messages %}
+  <ul class="messages">{% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+{% if user.is_authenticated %}<footer class="footer"><img src="{% asset 'img/logo-shield.png' %}" alt=""> © АО «Каражанбасмунай» · {% translate "Учёт прибытия на месторождение" %}</footer>{% endif %}
+{% block scripts %}{% endblock %}
+</body>
+</html>
