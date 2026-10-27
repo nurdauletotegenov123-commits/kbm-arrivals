@@ -7,10 +7,11 @@ from django.utils.translation import gettext as _
 from audit.models import AuditLog
 from audit.utils import log_action
 
-from .models import Trip, Visitor
+from .models import Request, Trip, Visitor
 from .notifications import notify_trip
 
 S = Visitor.Status
+P = Request.Approval
 D = Trip.Direction
 C = Visitor.CampStatus
 A = AuditLog.Action
@@ -34,6 +35,8 @@ def mark_arrived(pk, user, request=None):
     v = locked_visitor(pk)
     if v.is_cancelled:
         raise ActionError(_("Визит отменён."))
+    if not v.request.is_approved:
+        raise ActionError(_("Заявка №%(n)s не согласована начальником штаба.") % {"n": v.request.number})
     if v.status != S.EXPECTED:
         raise ActionError(_("%(name)s уже отмечен(а): %(status)s.") % {"name": v, "status": v.get_status_display()})
     v.status = S.ARRIVED
@@ -165,13 +168,68 @@ def cancel_request(req, user, request=None):
     return cancelled
 
 
+# --- согласование (начальник штаба безопасности) ---
+
+def _locked_request(req):
+    return Request.objects.select_for_update().get(pk=req.pk)
+
+
+@transaction.atomic
+def approve_request(req, user, strike_ids=(), request=None):
+    """Согласовать заявку. Люди из `strike_ids` не допускаются (статус «Не согласован»),
+    остальные уходят диспетчеру, охране и кэмпу."""
+    req = _locked_request(req)
+    if req.is_cancelled or not req.is_pending:
+        raise ActionError(_("Заявка №%(n)s уже не ждёт согласования.") % {"n": req.number})
+    struck = []
+    for v in req.visitors.select_for_update().filter(pk__in=strike_ids, status=S.EXPECTED):
+        v.status = S.REJECTED
+        v.save(update_fields=["status"])
+        log_action(request, A.VISITOR_CANCEL, v, {"status": [S.EXPECTED, S.REJECTED]}, user=user)
+        struck.append(v.full_name)
+    if not req.visitors.exclude(status__in=Visitor.GONE).exists():
+        raise ActionError(_("Сняты все люди — отклоните заявку и укажите причину."))
+    req.approval, req.approved_by, req.approved_at, req.reject_reason = P.APPROVED, user, timezone.now(), ""
+    req.save(update_fields=["approval", "approved_by", "approved_at", "reject_reason", "updated_at"])
+    changes = {"approval": [P.PENDING, P.APPROVED]}
+    if struck:
+        changes["не допущены"] = struck
+    log_action(request, A.REQUEST_APPROVE, req, changes, user=user)
+    return req, struck
+
+
+@transaction.atomic
+def reject_request(req, user, reason, request=None):
+    reason = (reason or "").strip()
+    if not reason:
+        raise ActionError(_("Укажите причину отказа — её увидит заявитель."))
+    req = _locked_request(req)
+    if req.is_cancelled or not req.is_pending:
+        raise ActionError(_("Заявка №%(n)s уже не ждёт согласования.") % {"n": req.number})
+    req.approval, req.approved_by, req.approved_at, req.reject_reason = P.REJECTED, user, timezone.now(), reason
+    req.save(update_fields=["approval", "approved_by", "approved_at", "reject_reason", "updated_at"])
+    log_action(request, A.REQUEST_REJECT, req, {"approval": [P.PENDING, P.REJECTED], "причина": reason}, user=user)
+    return req
+
+
+def resubmit_if_rejected(req, user, request=None):
+    """Заявитель исправил отклонённую заявку — она снова уходит на согласование."""
+    if not req.is_rejected:
+        return False
+    req.approval, req.approved_by, req.approved_at = P.PENDING, None, None
+    req.save(update_fields=["approval", "approved_by", "approved_at", "updated_at"])
+    log_action(request, A.REQUEST_RESUBMIT, req, {"approval": [P.REJECTED, P.PENDING]}, user=user)
+    return True
+
+
 # --- транспорт (диспетчер и КПП) ---
 
 TRIP_FIELDS = ["time", "pickup_place", "vehicle_make", "vehicle_plate", "driver_name", "driver_phone", "comment"]
+CARGO_FIELDS = ["date", "time", "vehicle_make", "vehicle_plate", "driver_name", "driver_phone", "cargo"]
 
 
-def _trip_snapshot(trip):
-    return {name: (str(getattr(trip, name)) if getattr(trip, name) is not None else None) for name in TRIP_FIELDS}
+def _trip_snapshot(trip, fields=TRIP_FIELDS):
+    return {name: (str(getattr(trip, name)) if getattr(trip, name) is not None else None) for name in fields}
 
 
 def _trip_field(direction):
@@ -181,7 +239,7 @@ def _trip_field(direction):
 def _assignable(trip, visitor_ids):
     """Люди, которых можно посадить в эту машину: нужен транспорт, дата совпадает с рейсом,
     на привоз — ещё не прибыли, на вывоз — ещё не убыли."""
-    qs = Visitor.objects.active().select_for_update().filter(pk__in=visitor_ids, needs_transport=True)
+    qs = Visitor.objects.approved().select_for_update().filter(pk__in=visitor_ids, needs_transport=True)
     if trip.is_in:
         qs = qs.filter(arrival_date=trip.date, status=S.EXPECTED)
     else:
@@ -253,9 +311,31 @@ def delete_trip(trip, user, request=None):
     return names
 
 
+def save_cargo(req, trip, before, user, request=None):
+    """Заявитель указал (или изменил) машину с грузом. `before` — снимок до правки, None для новой."""
+    trip.direction, trip.request = D.CARGO, req
+    if trip.pk is None:
+        trip.created_by = user
+    trip.save()
+    after = _trip_snapshot(trip, CARGO_FIELDS)
+    changes = after if before is None else {k: [before.get(k), v] for k, v in after.items() if before.get(k) != v}
+    if changes:
+        log_action(request, A.CARGO_SET, trip, changes, user=user)
+    return trip
+
+
+def delete_cargo(trip, user, request=None):
+    if trip.is_marked:
+        raise ActionError(_("Машина с грузом уже отмечена на КПП — убрать её нельзя."))
+    log_action(request, A.CARGO_DELETE, trip, _trip_snapshot(trip, CARGO_FIELDS), user=user)
+    trip.delete()
+
+
 @transaction.atomic
 def trip_enter(pk, user, request=None):
-    trip = Trip.objects.select_for_update().get(pk=pk)
+    trip = Trip.objects.select_for_update(of=("self",)).select_related("request").get(pk=pk)
+    if trip.is_cargo and not (trip.request.is_approved and not trip.request.is_cancelled):
+        raise ActionError(_("Заявка на завоз груза не согласована."))
     if trip.entered_at:
         raise ActionError(_("Машина %(plate)s уже въехала.") % {"plate": trip.vehicle_plate})
     trip.entered_at, trip.entered_by, trip.entered_checkpoint = timezone.now(), user, user.checkpoint

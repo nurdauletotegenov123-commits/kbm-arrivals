@@ -15,8 +15,8 @@ from audit.models import AuditLog
 from audit.utils import diff_fields, log_action
 
 from .. import excel, services
-from ..forms import ImportForm, NewVisitorFormSet, RequestForm, VisitorFormSet
-from ..models import Organization, Request, Visitor
+from ..forms import CargoForm, ImportForm, NewVisitorFormSet, RejectForm, RequestForm, VisitorFormSet
+from ..models import Organization, Request, Trip, Visitor
 from ..notifications import notify_request
 from .common import R
 
@@ -39,9 +39,10 @@ def _snapshot(obj, fields):
 
 def _requests_qs(user):
     qs = Request.objects.select_related("author").prefetch_related(
-        Prefetch("visitors", queryset=Visitor.objects.select_related("organization", "request", "arrival_trip", "departure_trip"))
+        Prefetch("visitors", queryset=Visitor.objects.select_related("organization", "request", "arrival_trip", "departure_trip")),
+        "cargo_trips",
     )
-    return qs if user.is_admin_role else qs.filter(author=user)
+    return qs if user.has_role(R.CHIEF) else qs.filter(author=user)
 
 
 @role_required(R.APPLICANT)
@@ -62,15 +63,25 @@ def request_list(request):
     return render(request, "visits/request_list.html", {"page": page, "show": show, "q": q})
 
 
-@role_required(R.APPLICANT)
+@role_required(R.APPLICANT, R.CHIEF)
 def request_detail(request, pk):
-    req = get_object_or_404(_requests_qs(request.user), pk=pk)
+    user = request.user
+    req = get_object_or_404(_requests_qs(user), pk=pk)
     visitors = list(req.visitors.all())
+    cargo = req.cargo_trip
     history = AuditLog.objects.filter(
         Q(object_type="request", object_id=str(req.pk))
         | Q(object_type="visitor", object_id__in=[str(v.pk) for v in visitors])
+        | Q(object_type="trip", object_id=str(cargo.pk) if cargo else "-")
     ).select_related("user")[:200]
-    return render(request, "visits/request_detail.html", {"req": req, "visitors": visitors, "history": history})
+    return render(request, "visits/request_detail.html", {
+        "req": req, "visitors": visitors, "history": history, "cargo": cargo,
+        # Начальник штаба смотрит и согласует, но не правит чужие заявки.
+        "can_edit": req.can_be_edited and user.has_role(R.APPLICANT) and (req.author_id == user.pk or user.is_admin_role),
+        "can_decide": req.is_pending and not req.is_cancelled and user.has_role(R.CHIEF),
+        "show_docs": True,  # сюда попадают только автор, начальник штаба и администратор
+        "reject_form": RejectForm(),
+    })
 
 
 @role_required(R.APPLICANT)
@@ -91,11 +102,14 @@ def request_edit(request, pk):
 
 def _request_form(request, req):
     is_new = req.pk is None
-    visitors_qs = Visitor.objects.none() if is_new else req.visitors.exclude(status=Visitor.Status.CANCELLED)
+    visitors_qs = Visitor.objects.none() if is_new else req.visitors.exclude(status__in=Visitor.GONE)
     data = request.POST if request.method == "POST" else None
     form = RequestForm(data, instance=req)
     formset = VisitorFormSet(data, instance=req, queryset=visitors_qs.select_related("organization"))
-    if request.method == "POST" and form.is_valid() and formset.is_valid():
+    cargo_trip = req.cargo_trip
+    cargo_before = services._trip_snapshot(cargo_trip, services.CARGO_FIELDS) if cargo_trip else None
+    cargo_form = CargoForm(data, instance=cargo_trip or Trip(direction=Trip.Direction.CARGO))
+    if request.method == "POST" and all([form.is_valid(), formset.is_valid(), cargo_form.is_valid()]):
         req_before = _snapshot(req, RequestForm.Meta.fields) if not is_new else {}
         with transaction.atomic():
             req = form.save()
@@ -104,15 +118,27 @@ def _request_form(request, req):
             elif form.has_changed():
                 log_action(request, A.REQUEST_UPDATE, req, diff_fields(req_before, _snapshot(req, RequestForm.Meta.fields)))
             _save_visitors(request, req, formset)
-        notify_request(req, "create" if is_new else "update")
-        messages.success(request, _("Заявка №%(n)s сохранена.") % {"n": req.number})
+            if cargo_form.wanted:
+                services.save_cargo(req, cargo_form.instance, cargo_before, request.user, request=request)
+            elif cargo_trip and not cargo_form.is_locked:
+                services.delete_cargo(cargo_trip, request.user, request=request)
+            resubmitted = not is_new and services.resubmit_if_rejected(req, request.user, request=request)
+        notify_request(req, "create" if is_new else "resubmit" if resubmitted else "update")
+        if is_new or resubmitted:
+            messages.success(request, _("Заявка №%(n)s отправлена на согласование начальнику штаба безопасности.")
+                             % {"n": req.number})
+        else:
+            messages.success(request, _("Заявка №%(n)s сохранена.") % {"n": req.number})
         return redirect("request_detail", pk=req.pk)
 
     if request.method != "POST" and is_new:
-        formset = NewVisitorFormSet(instance=req, queryset=visitors_qs)
+        org = request.user.organization
+        formset = NewVisitorFormSet(instance=req, queryset=visitors_qs,
+                                    initial=[{"organization_name": org}] if org else None)
     return render(request, "visits/request_form.html", {
         "form": form,
         "formset": formset,
+        "cargo_form": cargo_form,
         "req": req,
         "is_new": is_new,
         "organizations": Organization.objects.values_list("name", flat=True),
@@ -181,8 +207,9 @@ def import_template(request):
 def dashboard(request):
     """Обзор для администратора."""
     today = timezone.localdate()
-    active = Visitor.objects.active()
+    active = Visitor.objects.ready()
     stats = {
+        "pending": Request.objects.filter(approval=Request.Approval.PENDING, is_cancelled=False).count(),
         "expected": active.filter(arrival_date=today, status=Visitor.Status.EXPECTED).count(),
         "arrived_today": active.filter(arrived_at__date=today).count(),
         "on_site": active.filter(status=Visitor.Status.ARRIVED).count(),
@@ -193,7 +220,7 @@ def dashboard(request):
         "meals_today": sum(1 for v in active.filter(needs_meals=True, arrival_date__lte=today, departure_date__gte=today)
                            .select_related("request") if v.eats_on(today)),
         "tomorrow": active.filter(arrival_date=today + timedelta(days=1)).count(),
-        "no_transport": active.filter(needs_transport=True, arrival_trip__isnull=True, status=Visitor.Status.EXPECTED,
+        "no_transport": Visitor.objects.approved().filter(needs_transport=True, arrival_trip__isnull=True, status=Visitor.Status.EXPECTED,
                                       arrival_date__range=(today, today + timedelta(days=1))).count(),
     }
     recent = _requests_qs(request.user)[:10]

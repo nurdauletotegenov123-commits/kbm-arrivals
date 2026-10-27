@@ -197,6 +197,11 @@ SITE_URL = env("SITE_URL", "http://localhost:8000")
 # Сколько дней после даты прибытия «не прибывший» остаётся в отдельном блоке.
 NO_SHOW_DAYS = int(env("NO_SHOW_DAYS", "2"))
 
+# Регистрация заявителей с телефона (подрядчики, гости). 0 — регистрацию закрыть, аккаунты заводит админ.
+SIGNUP_ENABLED = env("SIGNUP_ENABLED", "1") == "1"
+SIGNUPS_PER_HOUR = int(env("SIGNUPS_PER_HOUR", "10"))  # с одного IP
+LOGIN_FAILS_LIMIT = int(env("LOGIN_FAILS_LIMIT", "10"))  # неудачных входов с одного IP за 15 минут
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

@@ -2,14 +2,48 @@
 {% block title %}{% translate "Заявка" %} №{{ req.number }}{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h1>{% translate "Заявка" %} №{{ req.number }}{% if req.is_cancelled %} <span class="badge badge-cancelled">{% translate "Отменена" %}</span>{% endif %}</h1>
+  <h1>{% translate "Заявка" %} №{{ req.number }}{% if req.is_cancelled %} <span class="badge badge-cancelled">{% translate "Отменена" %}</span>{% else %} <span class="badge badge-{{ req.approval }}">{{ req.get_approval_display }}</span>{% endif %}</h1>
   <div class="btn-row">
-    {% if req.can_be_edited %}<a class="btn btn-primary" href="{% url 'request_edit' req.pk %}">{% translate "Изменить" %}</a>
+    {% if can_edit %}<a class="btn btn-primary" href="{% url 'request_edit' req.pk %}">{% translate "Изменить" %}</a>
     <form method="post" action="{% url 'request_cancel' req.pk %}" onsubmit="return confirm('{% translate "Отменить заявку? Будут отменены все, кто ещё не прибыл." %}')">{% csrf_token %}
       <button class="btn btn-red" type="submit">{% translate "Отменить заявку" %}</button></form>{% endif %}
-    <a class="btn" href="{% url 'request_list' %}">{% translate "К списку" %}</a>
+    {% if user.role == "chief" %}<a class="btn" href="{% url 'approval_list' %}">{% translate "К согласованию" %}</a>
+    {% else %}<a class="btn" href="{% url 'request_list' %}">{% translate "К списку" %}</a>{% endif %}
   </div>
 </div>
+
+{% if not req.is_cancelled %}
+  {% if req.is_pending and not can_decide %}<div class="approval-line pending">{% translate "Ждёт согласования начальником штаба безопасности. До согласования заявку не видят диспетчер, КПП и кэмп." %}</div>
+  {% elif req.is_rejected %}<div class="approval-line rejected">{% blocktranslate with who=req.approved_by|default:"" when=req.approved_at|date:"d.m.Y H:i" %}Отклонена {{ when }}, {{ who }}{% endblocktranslate %}
+    <span class="reason">{% translate "Причина" %}: {{ req.reject_reason }}</span>
+    {% if can_edit %}<span class="reason small">{% translate "Исправьте заявку и сохраните — она снова уйдёт на согласование." %}</span>{% endif %}</div>
+  {% elif req.is_approved and req.approved_by %}<div class="approval-line approved">{% blocktranslate with who=req.approved_by when=req.approved_at|date:"d.m.Y H:i" %}Согласована {{ when }}, {{ who }}{% endblocktranslate %}</div>{% endif %}
+{% endif %}
+
+{% if can_decide %}
+<div class="card decision">
+  <h2>{% translate "Решение по заявке" %}</h2>
+  <p class="small muted">{% translate "Проверьте людей и груз ниже. Снимите галочку у тех, кого нельзя допускать, — остальные будут согласованы." %}</p>
+  <form method="post" action="{% url 'request_approve' req.pk %}" id="approve-form">{% csrf_token %}
+    <div class="strike-list">
+      {% for v in visitors %}{% if v.status == "expected" %}
+      <input type="hidden" name="shown" value="{{ v.pk }}">
+      <label class="check"><input type="checkbox" name="admit" value="{{ v.pk }}" checked> {{ v.full_name }} <span class="muted small">· {{ v.organization }} · {{ v.arrival_date|date:"d.m" }}–{{ v.departure_date|date:"d.m" }}</span></label>
+      {% endif %}{% endfor %}
+    </div>
+  </form>
+  <div class="decision-actions">
+    <button class="btn btn-green btn-big" type="submit" form="approve-form">✓ {% translate "Согласовать" %}</button>
+    <details>
+      <summary class="btn btn-red btn-big">{% translate "Отклонить" %}</summary>
+      <form method="post" action="{% url 'request_reject' req.pk %}">{% csrf_token %}
+        {% include "includes/field.html" with field=reject_form.reason %}
+        <button class="btn btn-red" type="submit">{% translate "Отклонить заявку" %}</button>
+      </form>
+    </details>
+  </div>
+</div>
+{% endif %}
 
 <div class="card">
   <dl class="props">
@@ -19,6 +53,23 @@
     <dt>{% translate "Создал" %}</dt><dd>{{ req.author }}, {{ req.created_at|date:"d.m.Y H:i" }}</dd>
   </dl>
 </div>
+
+{% if cargo %}
+<h2>{% translate "Завоз груза" %}</h2>
+<div class="people">
+  <article class="person trip {{ cargo.state_class }}">
+    <div class="person-head">
+      <div>
+        <div class="person-name"><span class="plate">{{ cargo.vehicle_plate }}</span> {{ cargo.vehicle_make }}</div>
+        <div class="person-sub">{{ cargo.date|date:"d E, l" }}{% if cargo.time %} · ≈ {{ cargo.time|time:"H:i" }}{% endif %}</div>
+      </div>
+      <div class="right">{% with t=cargo %}{% include "visits/_trip_status.html" %}{% endwith %}</div>
+    </div>
+    <div class="cargo-text">{{ cargo.cargo }}</div>
+    <div class="person-meta"><span><span class="k">{% translate "Водитель" %}:</span> {{ cargo.driver_name }}{% if cargo.driver_phone %}, <a href="tel:{{ cargo.driver_phone }}">{{ cargo.driver_phone }}</a>{% endif %}</span></div>
+  </article>
+</div>
+{% endif %}
 
 {% with trips=req.trips %}{% if trips %}
 <h2>{% translate "Транспорт" %}</h2>

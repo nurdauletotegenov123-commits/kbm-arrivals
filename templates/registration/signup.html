@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% load i18n assets %}
+{% block title %}{% translate "Регистрация" %}{% endblock %}
+{% block body_class %} class="login-page"{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <div class="logo-big">
+    <img src="{% asset 'img/logo-full.png' %}" alt="АО «Каражанбасмунай»">
+    <b>{% translate "Регистрация заявителя" %}</b><span class="muted">{% translate "Для подрядчиков и гостей месторождения" %}</span>
+  </div>
+  <form method="post" class="card" novalidate>
+    {% csrf_token %}
+    {% include "includes/form_errors.html" %}
+    {% include "includes/field.html" with field=form.full_name %}
+    {% include "includes/field.html" with field=form.organization %}
+    {% include "includes/field.html" with field=form.phone %}
+    {% include "includes/field.html" with field=form.email %}
+    {% include "includes/field.html" with field=form.password1 %}
+    {% include "includes/field.html" with field=form.password2 %}
+    <div class="hp" aria-hidden="true">{{ form.website }}</div>
+    <button class="btn btn-primary btn-big" style="width:100%" type="submit">{% translate "Зарегистрироваться" %}</button>
+  </form>
+  <p class="muted small" style="text-align:center">{% translate "После регистрации вы сможете подать заявку на въезд людей и завоз материалов. Пропуск действует только после согласования штабом безопасности." %}</p>
+  <p class="small" style="text-align:center"><a href="{% url 'login' %}">{% translate "Уже есть аккаунт — войти" %}</a></p>
+</div>
+{% endblock %}

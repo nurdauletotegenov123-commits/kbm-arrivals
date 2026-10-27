@@ -34,7 +34,7 @@ def reports(request):
         overlap = Q(arrival_date__lte=d2, departure_date__gte=d1)
         log_action(request, AuditLog.Action.EXPORT, object_repr=f"{REPORTS[kind][0]}: {d1:%d.%m.%Y}–{d2:%d.%m.%Y}")
         if kind == "movements":
-            qs = base.active().filter(
+            qs = base.ready().filter(
                 Q(arrival_date__range=(d1, d2)) | Q(arrived_at__date__range=(d1, d2)) | Q(departed_at__date__range=(d1, d2))
             ).order_by("arrival_date", "full_name")
             return excel.report_movements(list(qs), d1, d2, user.can_see_documents)

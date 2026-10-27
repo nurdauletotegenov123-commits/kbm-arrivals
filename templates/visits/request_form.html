@@ -22,6 +22,22 @@
     </div>
   </div>
 
+  <div class="card cargo-box">
+    {% if cargo_form.non_field_errors %}<div class="form-errors">{{ cargo_form.non_field_errors }}</div>{% endif %}
+    {% include "includes/check.html" with field=cargo_form.has_cargo %}
+    <div class="small muted">{% translate "Если вы завозите на территорию материалы или оборудование на своей машине. Охрана увидит груз на КПП." %}</div>
+    {% if cargo_form.is_locked %}<div class="warn-line">{% translate "Машина с грузом уже отмечена на КПП — изменить её нельзя." %}</div>{% endif %}
+    <div class="cargo-fields grid-2{% if not cargo_form.has_cargo.value %} hidden{% endif %}" id="cargo-fields">
+      {% include "includes/field.html" with field=cargo_form.cargo %}
+      {% include "includes/field.html" with field=cargo_form.date %}
+      {% include "includes/field.html" with field=cargo_form.time %}
+      {% include "includes/field.html" with field=cargo_form.vehicle_make %}
+      {% include "includes/field.html" with field=cargo_form.vehicle_plate %}
+      {% include "includes/field.html" with field=cargo_form.driver_name %}
+      {% include "includes/field.html" with field=cargo_form.driver_phone %}
+    </div>
+  </div>
+
   <div class="page-head" style="margin-bottom:.5rem">
     <h2 style="margin:0">{% translate "Люди" %} (<span id="people-count">0</span>)</h2>
   </div>
@@ -51,6 +67,13 @@
 </form>
 {% endblock %}
 {% block scripts %}
+<script>
+  (function () {
+    var box = document.getElementById("{{ cargo_form.has_cargo.id_for_label }}");
+    var fields = document.getElementById("cargo-fields");
+    if (box) box.addEventListener("change", function () { fields.classList.toggle("hidden", !box.checked); });
+  })();
+</script>
 <script>
   window.REQUEST_FORM = {
     prefix: "{{ formset.prefix }}",

@@ -20,11 +20,12 @@ from .common import R
 S = Visitor.Status
 D = Trip.Direction
 HORIZONS = (3, 7, 14)
+DISPATCH_TRIPS = Trip.objects.filter(direction__in=[D.IN, D.OUT])  # машины с грузом указывает заявитель
 
 
 def _waiting(direction, d1, d2):
     """Люди без машины на даты d1..d2."""
-    base = Visitor.objects.active().filter(needs_transport=True).select_related("organization", "request")
+    base = Visitor.objects.approved().filter(needs_transport=True).select_related("organization", "request")
     if direction == D.IN:
         return base.filter(arrival_trip__isnull=True, status=S.EXPECTED, arrival_date__range=(d1, d2))
     return base.filter(departure_trip__isnull=True, status__in=[S.EXPECTED, S.ARRIVED],
@@ -116,7 +117,7 @@ def dispatch_assign(request):
 
 @role_required(R.DISPATCHER)
 def trip_edit(request, pk):
-    trip = get_object_or_404(Trip, pk=pk)
+    trip = get_object_or_404(DISPATCH_TRIPS, pk=pk)
     before = services._trip_snapshot(trip)
     form = TripForm(request.POST or None, instance=trip)
     if request.method == "POST" and form.is_valid():
@@ -129,7 +130,7 @@ def trip_edit(request, pk):
 @require_POST
 @role_required(R.DISPATCHER)
 def trip_remove(request, pk, visitor_pk):
-    trip = get_object_or_404(Trip, pk=pk)
+    trip = get_object_or_404(DISPATCH_TRIPS, pk=pk)
     try:
         v = services.remove_passenger(trip, int(visitor_pk), request.user, request=request)
         messages.info(request, _("%(name)s убран(а) из машины %(plate)s.") % {"name": v.full_name, "plate": trip.vehicle_plate})
@@ -141,7 +142,7 @@ def trip_remove(request, pk, visitor_pk):
 @require_POST
 @role_required(R.DISPATCHER)
 def trip_delete(request, pk):
-    trip = get_object_or_404(Trip, pk=pk)
+    trip = get_object_or_404(DISPATCH_TRIPS, pk=pk)
     try:
         services.delete_trip(trip, request.user, request=request)
         messages.info(request, _("Рейс %(plate)s удалён, люди снова без машины.") % {"plate": trip.vehicle_plate})

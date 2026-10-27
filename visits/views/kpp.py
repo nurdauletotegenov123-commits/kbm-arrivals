@@ -12,7 +12,7 @@ from django.views.decorators.http import require_POST
 from accounts.decorators import role_required
 
 from .. import services
-from ..models import Trip, Visitor
+from ..models import Request, Trip, Visitor
 from ..text import normalize_plate
 from .common import R, pop_action, redirect_back, remember_action
 
@@ -20,14 +20,20 @@ S = Visitor.Status
 
 
 def _base():
-    return Visitor.objects.active().select_related(
+    return Visitor.objects.ready().select_related(
         "request", "organization", "arrived_by", "arrived_checkpoint", "arrival_trip", "departure_trip")
 
 
 def _trips_today(today):
-    """Машины диспетчера на сегодня и те, что въехали раньше и ещё не выехали."""
-    return (Trip.objects.filter(date=today) | Trip.objects.filter(entered_at__isnull=False, exited_at__isnull=True)) \
+    """Машины диспетчера и машины с грузом на сегодня, и те, что въехали раньше и ещё не выехали."""
+    return _visible_trips(Trip.objects.filter(date=today) | Trip.objects.filter(entered_at__isnull=False, exited_at__isnull=True)) \
         .distinct().order_by("exited_at", "entered_at", "time", "pk")
+
+
+def _visible_trips(qs):
+    """Машина с грузом видна охране только по согласованной и не отменённой заявке."""
+    return qs.filter(Q(request__isnull=True) | Q(request__approval=Request.Approval.APPROVED, request__is_cancelled=False)) \
+        .select_related("request")
 
 
 @role_required(R.SECURITY)
@@ -57,7 +63,7 @@ def kpp(request):
         tab = "search"
         plate = normalize_plate(q)
         if len(plate) >= 3:
-            trips = list(Trip.objects.filter(vehicle_plate__contains=plate, date__gte=today - timedelta(days=1),
+            trips = list(_visible_trips(Trip.objects).filter(vehicle_plate__contains=plate, date__gte=today - timedelta(days=1),
                                              date__lte=today + timedelta(days=1)))
         window = Q(arrival_date__gte=today - timedelta(days=settings.NO_SHOW_DAYS), arrival_date__lte=today + timedelta(days=14))
         found = base.search(q).filter(window | Q(status=S.ARRIVED)).exclude(

@@ -38,7 +38,8 @@ class Base(TestCase):
 
     def visitor(self, **kw):
         req = kw.pop("request", None) or Request.objects.create(
-            author=self.applicant, purpose="Работы", contact_name="Отв", contact_phone="1")
+            author=self.applicant, purpose="Работы", contact_name="Отв", contact_phone="1",
+            approval=Request.Approval.APPROVED)
         data = dict(request=req, full_name="Иванов Иван", doc_number="900101300123", organization=self.org,
                     arrival_date=self.today, departure_date=self.today + timedelta(days=2))
         data.update(kw)
@@ -291,10 +292,17 @@ class TransportTests(Base):
         self.assertContains(resp, "Пассажир Один")  # поиск по номеру машины диспетчера
         self.assertContains(resp, "Машина въехала")
 
-    def test_kpp_shows_missing_transport(self):
-        self.visitor(full_name="Ждёт машину", needs_transport=True)
-        self.login(self.security)
-        self.assertContains(self.client.get(reverse("kpp")), "Транспорт ещё не назначен диспетчером")
+    def test_kpp_and_camp_wait_for_car(self):
+        """Пока диспетчер не назначил машину, человека не видят ни КПП, ни кэмп."""
+        v = self.visitor(full_name="Ждёт машину", needs_transport=True, needs_camp=True)
+        for user, url in ((self.security, "kpp"), (self.camp, "camp")):
+            self.login(user)
+            self.assertNotContains(self.client.get(reverse(url)), "Ждёт машину")
+        self.login(self.dispatcher)
+        self.assign([v], **self.NEW_CAR)
+        for user, url in ((self.security, "kpp"), (self.camp, "camp")):
+            self.login(user)
+            self.assertContains(self.client.get(reverse(url)), "Ждёт машину")
 
     def test_date_change_drops_trip(self):
         v = self.visitor(needs_transport=True)
@@ -405,3 +413,140 @@ class ApplicantSeesTransportTests(TransportTests):
         self.assertEqual(len(sent), 2)
         self.assertIn("Изменён транспорт", sent[1].subject)
         self.assertIn("У КПП-1", sent[1].body)
+
+
+class ApprovalTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.chief = make_user("chief", R.CHIEF)
+
+    def pending(self, **kw):
+        req = Request.objects.create(author=self.applicant, purpose="Подрядные работы", contact_name="Отв",
+                                     contact_phone="1")
+        return req, self.visitor(request=req, **kw)
+
+    def test_new_request_is_pending_and_hidden(self):
+        self.login(self.applicant)
+        resp = self.client.post(reverse("request_create"), RequestFormTests.post_data(self, needs_camp=True), follow=True)
+        self.assertContains(resp, "отправлена на согласование")
+        self.assertEqual(Request.objects.get().approval, Request.Approval.PENDING)
+        for user, url in ((self.security, "kpp"), (self.camp, "camp"), (self.dispatcher, "dispatch")):
+            self.login(user)
+            self.assertNotContains(self.client.get(reverse(url)), "Петров Пётр")
+        self.login(self.security)  # и отметить «Прибыл» в обход экрана тоже нельзя
+        self.client.post(reverse("kpp_action", args=[Visitor.objects.get().pk, "arrive"]))
+        self.assertEqual(Visitor.objects.get().status, Visitor.Status.EXPECTED)
+
+    def test_chief_approves_with_struck_person(self):
+        req, a = self.pending(full_name="Допущен Первый")
+        b = self.visitor(request=req, full_name="Недопущен Второй")
+        self.login(self.chief)
+        self.assertContains(self.client.get(reverse("approval_list")), "Подрядные работы")
+        resp = self.client.get(reverse("request_detail", args=[req.pk]))
+        self.assertContains(resp, "900101300123")  # начальник видит документы
+        self.assertNotContains(resp, reverse("request_edit", args=[req.pk]))  # но не правит
+        resp = self.client.post(reverse("request_approve", args=[req.pk]), {"shown": [a.pk, b.pk], "admit": [a.pk]},
+                                follow=True)
+        self.assertContains(resp, "Не допущены: Недопущен Второй")
+        req.refresh_from_db()
+        b.refresh_from_db()
+        self.assertTrue(req.is_approved)
+        self.assertEqual(req.approved_by, self.chief)
+        self.assertEqual(b.status, Visitor.Status.REJECTED)
+        self.login(self.security)
+        resp = self.client.get(reverse("kpp"))
+        self.assertContains(resp, "Допущен Первый")
+        self.assertNotContains(resp, "Недопущен Второй")
+
+    def test_approve_refused_if_request_changed(self):
+        req, a = self.pending()
+        self.visitor(request=req, full_name="Добавлен позже")
+        self.login(self.chief)
+        self.client.post(reverse("request_approve", args=[req.pk]), {"shown": [a.pk], "admit": [a.pk]})
+        req.refresh_from_db()
+        self.assertTrue(req.is_pending)
+
+    def test_reject_and_resubmit(self):
+        req, v = self.pending()
+        self.login(self.chief)
+        self.client.post(reverse("request_reject", args=[req.pk]), {"reason": ""})
+        req.refresh_from_db()
+        self.assertTrue(req.is_pending)  # без причины не отклонить
+        self.client.post(reverse("request_reject", args=[req.pk]), {"reason": "Нет допуска"})
+        req.refresh_from_db()
+        self.assertTrue(req.is_rejected)
+        self.login(self.applicant)
+        self.assertContains(self.client.get(reverse("request_detail", args=[req.pk])), "Нет допуска")
+        data = RequestFormTests.post_data(self)
+        data.update({"visitors-INITIAL_FORMS": "1", "visitors-0-id": str(v.pk), "visitors-0-request": str(req.pk),
+                     "visitors-0-full_name": "Иванов Иван"})
+        resp = self.client.post(reverse("request_edit", args=[req.pk]), data)
+        self.assertEqual(resp.status_code, 302)
+        req.refresh_from_db()
+        self.assertTrue(req.is_pending)
+        self.assertTrue(AuditLog.objects.filter(action=AuditLog.Action.REQUEST_RESUBMIT).exists())
+
+    def test_only_chief_decides(self):
+        req, v = self.pending()
+        for user in (self.applicant, self.security, self.dispatcher):
+            self.login(user)
+            self.assertEqual(self.client.post(reverse("request_approve", args=[req.pk]),
+                                              {"shown": [v.pk], "admit": [v.pk]}).status_code, 403)
+        req.refresh_from_db()
+        self.assertTrue(req.is_pending)
+
+    @override_settings(NOTIFICATIONS_ENABLED=True)
+    def test_emails_follow_approval(self):
+        self.chief.email, self.security.email, self.applicant.email = "c@kbm.kz", "s@kbm.kz", "a@kbm.kz"
+        for u in (self.chief, self.security, self.applicant):
+            u.save()
+        req, v = self.pending()
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_request(req, "create")
+        self.assertEqual([m.to for m in mail.outbox], [["c@kbm.kz"]])
+        mail.outbox.clear()
+        self.login(self.chief)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("request_approve", args=[req.pk]), {"shown": [v.pk], "admit": [v.pk]})
+        self.assertEqual(sorted(m.to[0] for m in mail.outbox), ["a@kbm.kz", "s@kbm.kz"])
+
+
+class CargoTests(Base):
+    def form_data(self, **cargo):
+        data = RequestFormTests.post_data(self)
+        data.update({"cargo-has_cargo": "on", "cargo-date": self.today.isoformat(), "cargo-vehicle_make": "КАМАЗ",
+                     "cargo-vehicle_plate": "512 brs 12", "cargo-driver_name": "Водитель", "cargo-cargo": "Трубы 120 шт."})
+        data.update(cargo)
+        return data
+
+    def test_cargo_required_fields(self):
+        self.login(self.applicant)
+        resp = self.client.post(reverse("request_create"), self.form_data(**{"cargo-cargo": ""}))
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Request.objects.exists())
+
+    def test_cargo_visible_at_kpp_after_approval(self):
+        self.login(self.applicant)
+        self.client.post(reverse("request_create"), self.form_data())
+        trip = Trip.objects.get()
+        self.assertEqual((trip.direction, trip.vehicle_plate), (Trip.Direction.CARGO, "512BRS12"))
+        self.login(self.security)
+        self.assertNotContains(self.client.get(reverse("kpp"), {"tab": "trips"}), "512BRS12")
+        Request.objects.update(approval=Request.Approval.APPROVED)
+        resp = self.client.get(reverse("kpp"), {"tab": "trips"})
+        self.assertContains(resp, "Трубы 120 шт.")
+        self.client.post(reverse("kpp_trip_action", args=[trip.pk, "enter"]))
+        trip.refresh_from_db()
+        self.assertIsNotNone(trip.entered_at)
+        self.login(self.dispatcher)  # диспетчер груз не видит и не правит
+        self.assertNotContains(self.client.get(reverse("dispatch")), "512BRS12")
+        self.assertEqual(self.client.get(reverse("trip_edit", args=[trip.pk])).status_code, 404)
+
+    def test_uncheck_removes_cargo(self):
+        self.login(self.applicant)
+        self.client.post(reverse("request_create"), self.form_data())
+        req, v = Request.objects.get(), Visitor.objects.get()
+        data = self.form_data(**{"cargo-has_cargo": ""})
+        data.update({"visitors-INITIAL_FORMS": "1", "visitors-0-id": str(v.pk), "visitors-0-request": str(req.pk)})
+        self.client.post(reverse("request_edit", args=[req.pk]), data)
+        self.assertFalse(Trip.objects.exists())

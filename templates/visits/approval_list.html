@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Согласование" %}{% endblock %}
+{% block content %}
+<div class="page-head"><h1>{% translate "Согласование заявок" %}</h1></div>
+<nav class="tabs">
+  <a href="?tab=pending" class="{% if tab == 'pending' %}active{% endif %}">{% translate "Ждут решения" %}<span class="count{% if counts.pending %} warn{% endif %}">{{ counts.pending }}</span></a>
+  <a href="?tab=approved" class="{% if tab == 'approved' %}active{% endif %}">{% translate "Согласованные" %}<span class="count">{{ counts.approved }}</span></a>
+  <a href="?tab=rejected" class="{% if tab == 'rejected' %}active{% endif %}">{% translate "Отклонённые" %}<span class="count">{{ counts.rejected }}</span></a>
+</nav>
+<form class="searchbar" method="get">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <input type="search" name="q" value="{{ q }}" placeholder="{% translate 'ФИО, ИИН, госномер, цель визита' %}">
+  <button class="btn" type="submit">{% translate "Найти" %}</button>
+</form>
+{% if tab == "pending" and not page.object_list and not q %}<div class="empty">{% translate "Новых заявок нет." %}</div>
+{% else %}{% include "visits/_request_table.html" with requests=page.object_list show_author=True %}{% endif %}
+{% include "includes/pager.html" %}
+{% endblock %}

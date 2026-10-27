@@ -28,7 +28,13 @@ class Organization(models.Model):
 
 
 class Request(models.Model):
-    """Заявка. Может содержать одного человека или целую бригаду."""
+    """Заявка. Может содержать одного человека или целую бригаду.
+    Пока начальник штаба безопасности её не согласовал, никто кроме него её не видит."""
+
+    class Approval(models.TextChoices):
+        PENDING = "pending", _("На согласовании")
+        APPROVED = "approved", _("Согласована")
+        REJECTED = "rejected", _("Отклонена")
 
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL, verbose_name=_("автор"), on_delete=models.PROTECT, related_name="requests"
@@ -38,6 +44,15 @@ class Request(models.Model):
     contact_phone = models.CharField(_("телефон ответственного"), max_length=50)
     comment = models.TextField(_("комментарий"), blank=True)
     is_cancelled = models.BooleanField(_("отменена"), default=False)
+    approval = models.CharField(
+        _("согласование"), max_length=20, choices=Approval.choices, default=Approval.PENDING, db_index=True
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, verbose_name=_("решение принял"), null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="+",
+    )
+    approved_at = models.DateTimeField(_("время решения"), null=True, blank=True)
+    reject_reason = models.TextField(_("причина отказа"), blank=True)
     created_at = models.DateTimeField(_("создана"), auto_now_add=True)
     updated_at = models.DateTimeField(_("изменена"), auto_now=True)
 
@@ -62,7 +77,8 @@ class Request(models.Model):
 
     def status_badges(self):
         labels = dict(Visitor.Status.choices)
-        order = [Visitor.Status.EXPECTED, Visitor.Status.ARRIVED, Visitor.Status.DEPARTED, Visitor.Status.CANCELLED]
+        order = [Visitor.Status.EXPECTED, Visitor.Status.ARRIVED, Visitor.Status.DEPARTED, Visitor.Status.CANCELLED,
+                 Visitor.Status.REJECTED]
         counts = self.status_counts()
         no_show = sum(1 for v in self.visitors.all() if v.is_no_show)
         badges = []
@@ -81,7 +97,7 @@ class Request(models.Model):
             if v.is_cancelled:
                 continue
             for trip in (v.arrival_trip, v.departure_trip):
-                if trip:
+                if trip:  # груз сюда не попадает: у него нет пассажиров
                     found.setdefault(trip.pk, {"trip": trip, "people": []})["people"].append(v)
         return sorted(found.values(), key=lambda t: (t["trip"].date, t["trip"].time or datetime_time.min, t["trip"].pk))
 
@@ -96,7 +112,7 @@ class Request(models.Model):
         return "arrival" if any(v.waits_departure_trip for v in people) else "assigned"
 
     def date_range(self):
-        visitors = [v for v in self.visitors.all() if v.status != Visitor.Status.CANCELLED] or list(self.visitors.all())
+        visitors = [v for v in self.visitors.all() if v.status not in Visitor.GONE] or list(self.visitors.all())
         if not visitors:
             return None, None
         return min(v.arrival_date for v in visitors), max(v.departure_date for v in visitors)
@@ -104,6 +120,25 @@ class Request(models.Model):
     @property
     def can_be_edited(self):
         return not self.is_cancelled
+
+    @property
+    def is_pending(self):
+        return self.approval == self.Approval.PENDING
+
+    @property
+    def is_approved(self):
+        return self.approval == self.Approval.APPROVED
+
+    @property
+    def is_rejected(self):
+        return self.approval == self.Approval.REJECTED
+
+    @property
+    def cargo_trip(self):
+        """Машина с материалами подрядчика (одна на заявку)."""
+        if not self.pk:
+            return None
+        return next((t for t in self.cargo_trips.all()), None)
 
 
 class Trip(models.Model):
@@ -113,8 +148,14 @@ class Trip(models.Model):
     class Direction(models.TextChoices):
         IN = "in", _("Привоз")
         OUT = "out", _("Вывоз")
+        CARGO = "cargo", _("Завоз груза")  # машина подрядчика с материалами, указывает заявитель
 
-    direction = models.CharField(_("направление"), max_length=3, choices=Direction.choices)
+    direction = models.CharField(_("направление"), max_length=10, choices=Direction.choices)
+    request = models.ForeignKey(
+        Request, verbose_name=_("заявка"), null=True, blank=True, on_delete=models.CASCADE, related_name="cargo_trips",
+        help_text=_("Только для завоза груза."),
+    )
+    cargo = models.TextField(_("что везут"), blank=True, help_text=_("Материалы, оборудование, количество."))
     date = models.DateField(_("дата"), db_index=True)
     time = models.TimeField(_("время подачи"), null=True, blank=True)
     pickup_place = models.CharField(
@@ -167,6 +208,10 @@ class Trip(models.Model):
         return self.direction == self.Direction.IN
 
     @property
+    def is_cargo(self):
+        return self.direction == self.Direction.CARGO
+
+    @property
     def is_marked(self):
         return bool(self.entered_at or self.exited_at)
 
@@ -184,19 +229,32 @@ class Trip(models.Model):
 
     def passengers(self):
         """Пассажиры рейса без отменённых."""
+        if self.is_cargo:
+            return Visitor.objects.none()
         related = self.arrivals if self.is_in else self.departures
         return related.active().select_related("organization", "request")
 
 
 class VisitorQuerySet(models.QuerySet):
     def active(self):
-        return self.exclude(status=Visitor.Status.CANCELLED).filter(request__is_cancelled=False)
+        return self.exclude(status__in=Visitor.GONE).filter(request__is_cancelled=False)
+
+    def approved(self):
+        """Заявка согласована начальником штаба — человека видит диспетчер."""
+        return self.active().filter(request__approval=Request.Approval.APPROVED)
+
+    def ready(self):
+        """Видны охране и кэмпу: заявка согласована, и если нужен транспорт — диспетчер уже назначил
+        машину на привоз. Кто уже прошёл КПП, виден в любом случае."""
+        return self.approved().filter(
+            models.Q(needs_transport=False) | models.Q(arrival_trip__isnull=False) | ~models.Q(status=Visitor.Status.EXPECTED)
+        )
 
     def with_camp(self):
-        return self.active().filter(needs_camp=True)
+        return self.ready().filter(needs_camp=True)
 
     def with_meals(self):
-        return self.active().filter(needs_meals=True)
+        return self.ready().filter(needs_meals=True)
 
     def search(self, query):
         cond = models.Q()
@@ -230,11 +288,15 @@ class Visitor(models.Model):
         ARRIVED = "arrived", _("Прибыл")
         DEPARTED = "departed", _("Убыл")
         CANCELLED = "cancelled", _("Отменён")
+        REJECTED = "rejected", _("Не согласован")  # снят начальником штаба при согласовании
 
     class CampStatus(models.TextChoices):
         WAITING = "waiting", _("Ожидает заселения")
         CHECKED_IN = "checked_in", _("Заселён")
         CHECKED_OUT = "checked_out", _("Выселен")
+
+    # Отменённые заявителем и снятые начальником штаба: их нигде не учитывают.
+    GONE = (Status.CANCELLED, Status.REJECTED)
 
     request = models.ForeignKey(Request, verbose_name=_("заявка"), on_delete=models.CASCADE, related_name="visitors")
 
@@ -356,7 +418,7 @@ class Visitor(models.Model):
 
     @property
     def is_cancelled(self):
-        return self.status == self.Status.CANCELLED or self.request.is_cancelled
+        return self.status in self.GONE or self.request.is_cancelled
 
     @property
     def is_no_show(self):

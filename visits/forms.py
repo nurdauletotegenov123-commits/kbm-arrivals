@@ -116,6 +116,67 @@ class TripForm(forms.ModelForm):
         }
 
 
+class CargoForm(forms.ModelForm):
+    """Машина подрядчика с материалами. Заполняется в заявке, если стоит галочка."""
+
+    has_cargo = forms.BooleanField(label=_("Завоз материалов или оборудования"), required=False)
+    REQUIRED = ("date", "vehicle_make", "vehicle_plate", "driver_name", "cargo")
+
+    class Meta:
+        model = Trip
+        fields = ["date", "time", "vehicle_make", "vehicle_plate", "driver_name", "driver_phone", "cargo"]
+        labels = {"date": _("Дата завоза"), "time": _("Примерное время")}
+        widgets = {
+            "date": DateInput(),
+            "time": TimeInput(),
+            "cargo": forms.Textarea(attrs={"rows": 2, "placeholder": _("Например: трубы НКТ 73 мм — 120 шт., 2 т")}),
+            "vehicle_make": forms.TextInput(attrs={"placeholder": _("Например: КАМАЗ 65117")}),
+            "vehicle_plate": forms.TextInput(attrs={"placeholder": "123ABC12"}),
+            "driver_phone": forms.TextInput(attrs={"type": "tel", "placeholder": "+7 7__ ___ __ __"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("prefix", "cargo")
+        super().__init__(*args, **kwargs)
+        self.fields["has_cargo"].initial = bool(self.instance.pk)
+        for name in self.Meta.fields:
+            self.fields[name].required = False
+        if self.is_locked:  # машина уже на КПП
+            for field in self.fields.values():
+                field.disabled = True
+
+    @property
+    def is_locked(self):
+        return bool(self.instance.pk and self.instance.is_marked)
+
+    @property
+    def wanted(self):
+        return bool(self.cleaned_data.get("has_cargo"))
+
+    def clean(self):
+        data = super().clean()
+        if not data.get("has_cargo"):
+            return data
+        for name in self.REQUIRED:
+            if not data.get(name):
+                self.add_error(name, _("Обязательное поле."))
+        day = data.get("date")
+        if day and not self.is_locked and "date" in self.changed_data and day < timezone.localdate():
+            self.add_error("date", _("Дата завоза не может быть в прошлом."))
+        return data
+
+    def _post_clean(self):
+        if self.cleaned_data.get("has_cargo"):  # без галочки модель не проверяем
+            super()._post_clean()
+
+
+class RejectForm(forms.Form):
+    reason = forms.CharField(
+        label=_("Причина отказа"), max_length=1000,
+        widget=forms.Textarea(attrs={"rows": 2, "placeholder": _("Её увидит заявитель")}),
+    )
+
+
 class BaseVisitorFormSet(BaseInlineFormSet):
     def clean(self):
         super().clean()

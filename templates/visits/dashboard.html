@@ -4,6 +4,7 @@
 <div class="page-head"><h1>{% translate "Обзор" %} · {{ today|date:"d E Y" }}</h1>
   <a class="btn btn-primary" href="{% url 'request_create' %}">+ {% translate "Новая заявка" %}</a></div>
 <div class="stats">
+  <a class="stat{% if stats.pending %} warn{% endif %}" href="{% url 'approval_list' %}"><b>{{ stats.pending }}</b><span>{% translate "ждут согласования" %}</span></a>
   <a class="stat" href="{% url 'kpp' %}"><b>{{ stats.expected }}</b><span>{% translate "ожидаются сегодня" %}</span></a>
   <a class="stat" href="{% url 'kpp' %}?tab=on_site"><b>{{ stats.arrived_today }}</b><span>{% translate "прибыли сегодня" %}</span></a>
   <a class="stat" href="{% url 'kpp' %}?tab=on_site"><b>{{ stats.on_site }}</b><span>{% translate "на территории" %}</span></a>

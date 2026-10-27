@@ -18,6 +18,7 @@ def nav(request):
             items.append({"url": reverse(url_name), "label": label})
 
     add([R.ADMIN], "dashboard", _("Обзор"))
+    add([R.CHIEF], "approval_list", _("Согласование"))
     add([R.APPLICANT], "request_list", _("Заявки"))
     add([R.DISPATCHER], "dispatch", _("Транспорт"))
     add([R.SECURITY], "kpp", _("КПП"))

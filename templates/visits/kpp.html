@@ -23,9 +23,9 @@
 {% include "includes/undo_bar.html" %}
 
 {% if trips %}
-  <h2 class="section-title">{% translate "Машины диспетчера" %} <span class="badge">{{ trips|length }}</span></h2>
+  <h2 class="section-title">{% translate "Машины" %} <span class="badge">{{ trips|length }}</span></h2>
   <div class="people">{% for t in trips %}{% include "visits/_trip_kpp.html" %}{% endfor %}</div>
-{% elif tab == "trips" %}<div class="empty">{% translate "На сегодня машин от диспетчера нет." %}</div>{% endif %}
+{% elif tab == "trips" %}<div class="empty">{% translate "На сегодня машин нет." %}</div>{% endif %}
 
 {% for s in sections %}
   <h2 class="section-title{% if s.warn %} warn{% endif %}">{{ s.title }} <span class="badge">{{ s.items|length }}</span></h2>

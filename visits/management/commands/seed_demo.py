@@ -21,6 +21,7 @@ USERS = [
     ("admin", "Администратор системы", R.ADMIN, None),
     ("zayavitel", "Сагинтаев Ерлан Маратович", R.APPLICANT, None),
     ("zayavitel2", "Кенжебаева Айгуль Сериковна", R.APPLICANT, None),
+    ("nachalnik", "Начальник штаба безопасности", R.CHIEF, None),
     ("ohrana", "Пост охраны КПП-1", R.SECURITY, "КПП-1 (главный въезд)"),
     ("ohrana2", "Пост охраны КПП-2", R.SECURITY, "КПП-2 (промзона)"),
     ("kemp", "Администратор кэмпа и столовой", R.CAMP, None),
@@ -32,6 +33,8 @@ NAMES = [
     "Исмаилов Марат Есенович", "Бекмуханов Канат Талгатович", "Ахметова Динара Болатовна", "Нургалиев Асхат Ринатович",
     "Шарипов Серик Кайратович", "Досмагамбетов Ильяс Маратович", "Ермеков Айбек Нуржанович", "Кадыров Олжас Бахытович",
     "Сарсенов Медет Галымович", "Иванов Сергей Петрович", "Сулейменов Ербол Жаксылыкович", "Жаксылыков Мейрам Абаевич",
+    "Тажибаев Алмас Кайратович", "Бисенов Ерлан Сабитович", "Калиев Нуржан Амангельдиевич", "Мукашев Дамир Ерланович",
+    "Султанова Жанар Маратовна", "Есимов Бекзат Нурланович",
 ]
 POSITIONS = ["Оператор ДНГ", "Слесарь КИПиА", "Электромонтёр", "Мастер бригады", "Инженер-технолог", "Помощник бурильщика",
              "Водитель", "Сварщик", "Геолог"]
@@ -52,6 +55,7 @@ class Command(BaseCommand):
         if reset:
             Visitor.objects.all().delete()
             Request.objects.all().delete()
+            Trip.objects.all().delete()
             AuditLog.objects.all().delete()
         elif Request.objects.exists():
             self.stdout.write(self.style.WARNING("Заявки уже есть — данные не созданы. Используйте --reset."))
@@ -85,12 +89,15 @@ class Command(BaseCommand):
         guest = Organization.objects.get_or_create(name="ТОО «Аудит-Консалт»", defaults={"kind": Organization.Kind.OTHER})[0]
         names = iter(NAMES)
         a1, a2, sec, sec2, camp = users["zayavitel"], users["zayavitel2"], users["ohrana"], users["ohrana2"], users["kemp"]
-        disp = users["dispetcher"]
+        disp, chief = users["dispetcher"], users["nachalnik"]
 
-        def req(author, purpose, comment=""):
+        def req(author, purpose, comment="", approval=Request.Approval.APPROVED):
+            decided = approval != Request.Approval.PENDING
             return Request.objects.create(author=author, purpose=purpose, contact_name=author.full_name,
                                           contact_phone="+7 701 234 56 78" if author == a1 else "+7 702 345 67 89",
-                                          comment=comment)
+                                          comment=comment, approval=approval,
+                                          approved_by=chief if decided else None,
+                                          approved_at=timezone.now() - timedelta(days=1) if decided else None)
 
         def person(r, org, arr, dep, *, at=None, camp_=False, meals="", plate="", make="", doc=None, name=None,
                    transport=False):
@@ -185,6 +192,32 @@ class Command(BaseCommand):
         r = req(a1, "Поставка труб (перенесено)")
         person(r, orgs["ТОО «КазМунайТранс-Сервис»"], d(2), d(2), plate="220KMT12")
         services.cancel_request(r, a1)
+
+        # 12. На согласовании: бригада подрядчика с завозом материалов
+        r = req(a1, "Замена выкидной линии скв. 1245", "Нужен допуск на кустовую площадку",
+                approval=Request.Approval.PENDING)
+        for _ in range(3):
+            person(r, orgs["ТОО «Бурсервис-КБМ»"], d(1), d(4), at=time(8, 0), camp_=True, meals="зоу")
+        Trip.objects.create(direction=Trip.Direction.CARGO, request=r, date=d(1), time=time(10, 0),
+                            vehicle_make="КАМАЗ 65117", vehicle_plate="512BRS12", driver_name="Ахметов Болат",
+                            driver_phone="+7 707 555 44 33", cargo="Трубы НКТ 73 мм — 120 шт., задвижки — 6 шт.",
+                            created_by=a1)
+
+        # 13. На согласовании: гость на один день
+        r = req(a2, "Аудит пожарной безопасности", approval=Request.Approval.PENDING)
+        person(r, guest, d(2), d(2), at=time(10, 0), meals="о", plate="555AUD02", make="Kia K5")
+
+        # 14. Отклонена начальником штаба
+        r = req(a2, "Экскурсия для студентов", approval=Request.Approval.REJECTED)
+        Request.objects.filter(pk=r.pk).update(reject_reason="Нет приказа о практике. Приложите письмо от вуза.")
+        person(r, guest, d(3), d(3))
+
+        # 15. Согласована, сегодня въезжает машина с грузом
+        r = req(a1, "Поставка химреагентов на УПН")
+        person(r, orgs["ТОО «КазМунайТранс-Сервис»"], d(0), d(0), at=time(11, 0), name="Сериков Дастан Ерболович")
+        Trip.objects.create(direction=Trip.Direction.CARGO, request=r, date=d(0), time=time(11, 0),
+                            vehicle_make="MAN TGS", vehicle_plate="707KMT12", driver_name="Сериков Дастан",
+                            driver_phone="+7 701 999 88 77", cargo="Деэмульгатор, 20 бочек по 200 л", created_by=a1)
 
         for r in Request.objects.all():
             AuditLog.objects.create(user=r.author, username=r.author.username, action=AuditLog.Action.REQUEST_CREATE,

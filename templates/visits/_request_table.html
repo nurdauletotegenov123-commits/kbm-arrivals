@@ -1,6 +1,6 @@
 {% load i18n %}{% if requests %}
 <div class="table-wrap"><table>
-  <thead><tr><th>№</th><th>{% translate "Цель визита" %}</th><th>{% translate "Люди" %}</th><th>{% translate "Даты" %}</th><th>{% translate "Статус" %}</th>{% if user.is_admin_role %}<th>{% translate "Автор" %}</th>{% endif %}</tr></thead>
+  <thead><tr><th>№</th><th>{% translate "Цель визита" %}</th><th>{% translate "Люди" %}</th><th>{% translate "Даты" %}</th><th>{% translate "Статус" %}</th>{% if show_author or user.is_admin_role %}<th>{% translate "Автор" %}</th>{% endif %}</tr></thead>
   <tbody>
   {% for r in requests %}{% with dates=r.date_range visitors=r.visitors.all %}
     <tr class="clickable{% if r.is_cancelled %} st-cancelled{% endif %}" onclick="location.href='{% url 'request_detail' r.pk %}'">
@@ -9,8 +9,8 @@
       <td>{% with first=visitors.0 %}{{ first.full_name }}{% endwith %}{% if visitors|length > 1 %} <span class="muted">+{{ visitors|length|add:"-1" }}</span>{% endif %}
         <div class="small muted">{% with first=visitors.0 %}{{ first.organization }}{% endwith %}</div></td>
       <td class="nowrap">{% if dates.0 %}{{ dates.0|date:"d.m" }}{% if dates.1 != dates.0 %} – {{ dates.1|date:"d.m" }}{% endif %}{% endif %}</td>
-      <td>{% if r.is_cancelled %}<span class="badge badge-cancelled">{% translate "Отменена" %}</span>{% else %}{% for b in r.status_badges %}<span class="badge badge-{{ b.key }}">{{ b.label }}{% if visitors|length > 1 %}: {{ b.count }}{% endif %}</span> {% endfor %}{% with ts=r.transport_state %}{% if ts == "waiting" %}<span class="badge badge-overdue">{% translate "ждёт машину" %}</span>{% elif ts == "arrival" %}<span class="badge badge-trip-in">{% translate "привоз назначен" %}</span>{% elif ts == "assigned" %}<span class="badge badge-trip-in">{% translate "машина назначена" %}</span>{% endif %}{% endwith %}{% endif %}</td>
-      {% if user.is_admin_role %}<td class="small">{{ r.author }}</td>{% endif %}
+      <td>{% if r.is_cancelled %}<span class="badge badge-cancelled">{% translate "Отменена" %}</span>{% elif not r.is_approved %}<span class="badge badge-{{ r.approval }}">{{ r.get_approval_display }}</span>{% else %}{% for b in r.status_badges %}<span class="badge badge-{{ b.key }}">{{ b.label }}{% if visitors|length > 1 %}: {{ b.count }}{% endif %}</span> {% endfor %}{% with ts=r.transport_state %}{% if ts == "waiting" %}<span class="badge badge-overdue">{% translate "ждёт машину" %}</span>{% elif ts == "arrival" %}<span class="badge badge-trip-in">{% translate "привоз назначен" %}</span>{% elif ts == "assigned" %}<span class="badge badge-trip-in">{% translate "машина назначена" %}</span>{% endif %}{% endwith %}{% endif %}{% if r.cargo_trip and not r.is_cancelled %} <span class="badge badge-trip-cargo">{% translate "груз" %}</span>{% endif %}</td>
+      {% if show_author or user.is_admin_role %}<td class="small">{{ r.author }}{% if r.author.organization %}<div class="muted">{{ r.author.organization }}</div>{% endif %}</td>{% endif %}
     </tr>
   {% endwith %}{% endfor %}
   </tbody>

@@ -272,6 +272,10 @@ tr.st-cancelled td { color: var(--muted); text-decoration: line-through; }
 .badge-checked_in { background: var(--green-bg); color: var(--green); }
 .badge-checked_out { background: var(--gray-bg); color: var(--muted); }
 .badge-trip-in, .badge-trip-out { background: #e3eef4; color: #1d4f6b; }
+.badge-trip-cargo { background: var(--orange-bg); color: var(--orange); }
+.badge-rejected { background: var(--red-bg); color: var(--red); }
+.badge-pending { background: var(--amber-bg); color: var(--amber); }
+.badge-approved { background: var(--green-bg); color: var(--green); }
 
 /* --------------------------------------------------------------------------
    Вкладки, поиск, табло с цифрами
@@ -507,6 +511,12 @@ dl.props dd { margin: 0; font-weight: 550; }
 .login-wrap .logo-big .muted { color: #8fcdee; }
 .login-wrap .card { border: none; box-shadow: var(--shadow-lg); padding: 1.6rem; color: var(--text); }
 .login-wrap > p.muted { color: rgba(255,255,255,.55); }
+.login-wrap > p a { color: #8fcdee; }
+.login-wrap .signup-hint { display: grid; gap: .5rem; margin-top: 1rem; padding: 1.2rem 1.6rem; }
+.login-wrap .signup-hint .btn { width: 100%; margin-top: .25rem; }
+.login-wrap .logo-big b + .muted { display: block; }
+/* ловушка для ботов в форме регистрации */
+.hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 
 /* --------------------------------------------------------------------------
    Столовая
@@ -527,3 +537,23 @@ dl.props dd { margin: 0; font-weight: 550; }
   .topbar .nav, .topbar .userbox, .form-actions, .tabs, .searchbar, .person-actions, .btn, .footer { display: none !important; }
   .card, .table-wrap, .person { box-shadow: none; }
 }
+
+/* --------------------------------------------------------------------------
+   Согласование (начальник штаба) и груз
+   -------------------------------------------------------------------------- */
+.decision { border-left: 4px solid var(--amber); }
+.decision h2 { margin: 0 0 .35rem; }
+.decision .strike-list { display: grid; gap: .35rem; margin: .75rem 0 1rem; }
+.decision .strike-list .check { font-weight: 500; }
+.decision .decision-actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-start; }
+.decision details { flex: 1 1 260px; }
+.decision details summary { cursor: pointer; list-style: none; display: inline-flex; }
+.decision details summary::-webkit-details-marker { display: none; }
+.decision details[open] summary { margin-bottom: .6rem; }
+.approval-line { padding: .6rem .9rem; border-radius: var(--radius-sm); margin-bottom: 1rem; font-weight: 600; }
+.approval-line.pending { background: var(--amber-bg); color: var(--amber); }
+.approval-line.rejected { background: var(--red-bg); color: var(--red); }
+.approval-line.approved { background: var(--green-bg); color: var(--green); }
+.approval-line .reason { display: block; font-weight: 500; margin-top: .2rem; color: var(--text); }
+.cargo-box .cargo-fields { margin-top: .9rem; }
+.cargo-text { white-space: pre-line; }

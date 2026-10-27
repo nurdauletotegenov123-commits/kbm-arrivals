@@ -28,6 +28,7 @@ class UserManager(BaseUserManager):
 class User(AbstractUser):
     class Role(models.TextChoices):
         APPLICANT = "applicant", _("Заявитель")
+        CHIEF = "chief", _("Начальник штаба безопасности")  # согласует заявки
         SECURITY = "security", _("Охрана (КПП)")
         CAMP = "camp", _("Кэмп и столовая")  # один человек ведёт кэмп и докладывает на кухню
         DISPATCHER = "dispatcher", _("Диспетчер транспорта")
@@ -35,6 +36,11 @@ class User(AbstractUser):
 
     full_name = models.CharField(_("ФИО"), max_length=200, blank=True)
     phone = models.CharField(_("телефон"), max_length=50, blank=True)
+    organization = models.CharField(_("организация"), max_length=200, blank=True)
+    self_registered = models.BooleanField(
+        _("зарегистрировался сам"), default=False, editable=False,
+        help_text=_("Аккаунт создан через страницу регистрации с телефона."),
+    )
     role = models.CharField(_("роль"), max_length=20, choices=Role.choices, default=Role.APPLICANT)
     checkpoint = models.ForeignKey(
         Checkpoint,
@@ -74,6 +80,6 @@ class User(AbstractUser):
 
     @property
     def can_see_documents(self):
-        """ИИН/паспорт видят только охрана и администратор
+        """ИИН/паспорт видят только охрана, начальник штаба и администратор
         (заявитель — в своих заявках, это проверяется отдельно)."""
-        return self.has_role(self.Role.SECURITY)
+        return self.has_role(self.Role.SECURITY, self.Role.CHIEF)

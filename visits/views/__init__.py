@@ -1,3 +1,4 @@
+from .approvals import approval_list, request_approve, request_reject  # noqa: F401
 from .camp import camp, camp_action  # noqa: F401
 from .canteen import canteen  # noqa: F401
 from .dispatch import dispatch, dispatch_assign, trip_delete, trip_edit, trip_remove  # noqa: F401

@@ -14,7 +14,14 @@ from accounts.models import User
 
 logger = logging.getLogger(__name__)
 
-EVENTS = {"create": "Новая заявка", "update": "Изменена заявка", "cancel": "Отменена заявка"}
+EVENTS = {
+    "create": "Новая заявка",
+    "update": "Изменена заявка",
+    "cancel": "Отменена заявка",
+    "resubmit": "Исправлена и снова отправлена заявка",
+    "approve": "Согласована заявка",
+    "reject": "Отклонена заявка",
+}
 
 
 def _line(v):
@@ -40,27 +47,56 @@ def notify_request(req, event):
     transaction.on_commit(lambda: _send(req.pk, event))
 
 
+def _recipient_roles(req, event, visitors):
+    """Пока заявка не согласована, о ней знает только начальник штаба.
+    Службы узнают о заявке в момент согласования — для них это «новая заявка»."""
+    R = User.Role
+    if req.is_pending:
+        return [R.CHIEF] if event in ("create", "resubmit") else []
+    if not req.is_approved or event == "reject":
+        return []
+    roles = [R.SECURITY]
+    if any(v.needs_camp or v.needs_meals for v in visitors):
+        roles.append(R.CAMP)
+    if any(v.needs_transport for v in visitors):
+        roles.append(R.DISPATCHER)
+    return roles
+
+
+def _author_message(req):
+    author = req.author
+    if not (author.is_active and author.notify_by_email and author.email):
+        return []
+    if req.is_approved:
+        lines = [f"Заявка №{req.number} ({req.purpose}) согласована начальником штаба безопасности."]
+        struck = [v.full_name for v in req.visitors.all() if v.status == v.Status.REJECTED]
+        if struck:
+            lines.append("Не допущены: " + ", ".join(struck))
+    else:
+        lines = [f"Заявка №{req.number} ({req.purpose}) отклонена.", f"Причина: {req.reject_reason}", "",
+                 "Исправьте заявку и сохраните её — она снова уйдёт на согласование."]
+    lines += ["", f"Открыть: {settings.SITE_URL.rstrip('/')}{reverse('request_detail', args=[req.pk])}"]
+    subject = f"[КБМ Прибытие] Заявка №{req.number} {'согласована' if req.is_approved else 'отклонена'}"
+    return [(subject, "\n".join(lines), settings.DEFAULT_FROM_EMAIL, [author.email])]
+
+
 def _send(request_pk, event):
     from .models import Request
 
     try:
         req = Request.objects.get(pk=request_pk)
-        visitors = list(req.visitors.select_related("organization"))
+        visitors = [v for v in req.visitors.select_related("organization") if v.status != v.Status.REJECTED]
+        messages = _author_message(req) if event in ("approve", "reject") else []
+        roles = _recipient_roles(req, event, visitors)
+        users = User.objects.filter(is_active=True, notify_by_email=True, role__in=roles).exclude(email="") if roles else []
         R = User.Role
-        roles = [R.SECURITY]
-        if any(v.needs_camp or v.needs_meals for v in visitors):
-            roles.append(R.CAMP)
-        if any(v.needs_transport for v in visitors):
-            roles.append(R.DISPATCHER)
-        users = User.objects.filter(is_active=True, notify_by_email=True, role__in=roles).exclude(email="")
-        if not users:
-            return
         links = {
+            R.CHIEF: reverse("request_detail", args=[req.pk]),
             R.SECURITY: reverse("kpp"),
             R.CAMP: reverse("camp"),
             R.DISPATCHER: reverse("dispatch"),
         }
-        messages = []
+        title = EVENTS["create"] if event == "approve" else EVENTS[event]
         for user in users:
             shown = visitors
             if user.role == R.CAMP:
@@ -69,7 +105,7 @@ def _send(request_pk, event):
                 shown = [v for v in visitors if v.needs_transport]
             body = "\n".join(
                 [
-                    f"{EVENTS[event]} №{req.number}",
+                    f"{title} №{req.number}",
                     f"Цель визита: {req.purpose}",
                     f"Ответственный: {req.contact_name}, {req.contact_phone}",
                     "",
@@ -78,9 +114,10 @@ def _send(request_pk, event):
                     f"Открыть: {settings.SITE_URL.rstrip('/')}{links[user.role]}",
                 ]
             )
-            subject = f"[КБМ Прибытие] {EVENTS[event]} №{req.number} ({len(shown)} чел.)"
+            subject = f"[КБМ Прибытие] {title} №{req.number} ({len(shown)} чел.)"
             messages.append((subject, body, settings.DEFAULT_FROM_EMAIL, [user.email]))
-        send_mass_mail(messages, fail_silently=False)
+        if messages:
+            send_mass_mail(messages, fail_silently=False)
     except Exception:  # почта не должна ломать работу с заявками
         logger.exception("Не удалось отправить уведомление по заявке %s", request_pk)
 
