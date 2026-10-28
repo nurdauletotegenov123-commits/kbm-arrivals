@@ -139,22 +139,26 @@ AUTH_PASSWORD_VALIDATORS = [
 
 AUTHENTICATION_BACKENDS = ["django.contrib.auth.backends.ModelBackend"]
 
-# --- Вход через корпоративный AD/LDAP (подключается позже) ---
-# Чтобы включить: установить пакет django-auth-ldap, задать LDAP_SERVER_URI
-# и остальные LDAP_* переменные (см. README, раздел «AD/LDAP»).
-if env("LDAP_SERVER_URI"):
-    import ldap
-    from django_auth_ldap.config import LDAPSearch
-
-    AUTH_LDAP_SERVER_URI = env("LDAP_SERVER_URI")
-    AUTH_LDAP_BIND_DN = env("LDAP_BIND_DN", "")
-    AUTH_LDAP_BIND_PASSWORD = env("LDAP_BIND_PASSWORD", "")
-    AUTH_LDAP_USER_SEARCH = LDAPSearch(
-        env("LDAP_USER_BASE", ""), ldap.SCOPE_SUBTREE, env("LDAP_USER_FILTER", "(sAMAccountName=%(user)s)")
-    )
-    AUTH_LDAP_USER_ATTR_MAP = {"full_name": "displayName", "email": "mail"}
-    AUTH_LDAP_ALWAYS_UPDATE_USER = True
-    AUTHENTICATION_BACKENDS.insert(0, "django_auth_ldap.backend.LDAPBackend")
+# --- Вход по доменной учётной записи (Active Directory) ---
+# См. README, раздел «Вход через AD». Без AD_HOST / AD_DOMAIN / AD_BASE_DN — только локальные пароли.
+AD_HOST = env("AD_HOST", "")  # контроллеры домена через запятую: AOS22-DC02.KBM.KZ
+AD_DOMAIN = env("AD_DOMAIN", "")  # KBM.KZ — вход как login@KBM.KZ
+AD_BASE_DN = env("AD_BASE_DN", "")  # где искать сотрудников: OU=KBM JSC,DC=KBM,DC=KZ
+AD_SECURITY = env("AD_SECURITY", "ldaps")  # ldaps (636) | starttls (389) | plain (389, пароль открытым текстом)
+AD_CA_CERT = env("AD_CA_CERT", "")  # корневой сертификат домена (.pem/.cer) — тогда сертификат DC проверяется
+AD_BIND_USER = env("AD_BIND_USER", "")  # служебная учётка только для чтения — для синхронизации ad_sync
+AD_BIND_PASSWORD = env("AD_BIND_PASSWORD", "")
+AD_DEFAULT_ROLE = env("AD_DEFAULT_ROLE", "applicant")  # роль сотрудника без группы; пусто — без группы не пускать
+AD_GROUPS = {  # группа AD (CN) → роль на сайте
+    "admin": env("AD_GROUP_ADMIN", ""),
+    "chief": env("AD_GROUP_CHIEF", ""),
+    "security": env("AD_GROUP_SECURITY", ""),
+    "dispatcher": env("AD_GROUP_DISPATCHER", ""),
+    "camp": env("AD_GROUP_CAMP", ""),
+}
+AD_ENABLED = bool(AD_HOST and AD_DOMAIN and AD_BASE_DN)
+if AD_ENABLED:
+    AUTHENTICATION_BACKENDS.insert(0, "accounts.ad.ADBackend")
 
 # --- Язык и время ---
 LANGUAGE_CODE = "ru"

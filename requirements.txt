@@ -3,4 +3,5 @@ openpyxl==3.1.5
 psycopg[binary]==3.2.10; sys_platform != "win32"  # PostgreSQL — только на сервере (Docker, Linux)
 gunicorn==23.0.0; sys_platform != "win32"  # под Windows не работает, там runserver
 whitenoise==6.9.0
+ldap3==2.9.1  # вход через Active Directory
 tzdata==2026.5

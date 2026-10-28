@@ -17,7 +17,7 @@
   {% for u in page.object_list %}
     <tr class="{% if not u.is_active %}st-cancelled{% endif %}">
       <td><a href="{% url 'user_edit' u.pk %}"><b>{{ u.username }}</b></a></td>
-      <td data-label="{% translate 'ФИО' %}">{{ u.full_name }}{% if u.organization %}<div class="small muted">{{ u.organization }}</div>{% endif %}{% if u.self_registered %}<div class="small muted">{% translate "регистрация с телефона" %}</div>{% endif %}</td>
+      <td data-label="{% translate 'ФИО' %}">{{ u.full_name }}{% if u.organization %}<div class="small muted">{{ u.organization }}</div>{% endif %}{% if u.self_registered %}<div class="small muted">{% translate "регистрация с телефона" %}</div>{% endif %}{% if u.from_ad %}<div class="small muted">{% translate "учётная запись домена" %}</div>{% endif %}</td>
       <td data-label="{% translate 'Роль' %}">{% if u.is_superuser %}{% translate "Администратор" %} ★{% else %}{{ u.get_role_display }}{% endif %}</td>
       <td data-label="{% translate 'КПП' %}" class="small">{{ u.checkpoint|default:"" }}</td>
       <td data-label="{% translate 'Контакты' %}" class="small">{{ u.phone }}{% if u.email %}<br>{{ u.email }}{% endif %}</td>

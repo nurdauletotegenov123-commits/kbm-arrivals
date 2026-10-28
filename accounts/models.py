@@ -37,6 +37,10 @@ class User(AbstractUser):
     full_name = models.CharField(_("ФИО"), max_length=200, blank=True)
     phone = models.CharField(_("телефон"), max_length=50, blank=True)
     organization = models.CharField(_("организация"), max_length=200, blank=True)
+    from_ad = models.BooleanField(
+        _("учётная запись домена"), default=False, editable=False,
+        help_text=_("Входит под доменным логином и паролем; ФИО, почта и роль берутся из AD."),
+    )
     self_registered = models.BooleanField(
         _("зарегистрировался сам"), default=False, editable=False,
         help_text=_("Аккаунт создан через страницу регистрации с телефона."),

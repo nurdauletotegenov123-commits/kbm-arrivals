@@ -10,7 +10,7 @@
   <form method="post" class="card">
     {% csrf_token %}
     {% if form.non_field_errors %}<div class="form-errors">{% translate "Неверный логин или пароль." %}</div>{% endif %}
-    <div class="field"><label for="id_username">{% translate "Логин или номер телефона" %}</label>
+    <div class="field"><label for="id_username">{% if ad_enabled %}{% translate "Доменный логин (как в Windows) или телефон" %}{% else %}{% translate "Логин или номер телефона" %}{% endif %}</label>
       <input type="text" name="username" id="id_username" autocomplete="username" autocapitalize="none" autofocus required value="{{ form.username.value|default:'' }}"></div>
     <div class="field"><label for="id_password">{% translate "Пароль" %}</label>
       <input type="password" name="password" id="id_password" autocomplete="current-password" required></div>
@@ -23,7 +23,7 @@
     <span class="small muted">{% translate "Зарегистрируйтесь с телефона и подайте заявку на въезд. Заявку согласует штаб безопасности." %}</span>
     <a class="btn btn-big" href="{% url 'signup' %}">{% translate "Регистрация" %}</a>
   </div>
-  <p class="muted small" style="text-align:center">{% translate "Сотрудникам служб доступ выдаёт администратор системы." %}</p>
+  <p class="muted small" style="text-align:center">{% if ad_enabled %}{% translate "Сотрудники КБМ входят под своей учётной записью Windows." %}{% else %}{% translate "Сотрудникам служб доступ выдаёт администратор системы." %}{% endif %}</p>
   {% else %}
   <p class="muted small" style="text-align:center">{% translate "Нет доступа? Обратитесь к администратору системы." %}</p>
   {% endif %}

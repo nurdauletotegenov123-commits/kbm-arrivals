@@ -40,7 +40,8 @@ class LoginView(auth_views.LoginView):
     form_class = LoginForm
 
     def get_context_data(self, **kwargs):
-        return {**super().get_context_data(**kwargs), "signup_enabled": settings.SIGNUP_ENABLED}
+        return {**super().get_context_data(**kwargs), "signup_enabled": settings.SIGNUP_ENABLED,
+                "ad_enabled": settings.AD_ENABLED}
 
     def post(self, request, *args, **kwargs):
         if _too_many(request, AuditLog.Action.LOGIN_FAILED, settings.LOGIN_FAILS_LIMIT, 15):
