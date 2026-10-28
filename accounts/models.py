@@ -56,6 +56,11 @@ class User(AbstractUser):
         help_text=_("Для охраны, кэмпа/столовой и диспетчера: письма о новых и изменённых заявках."),
     )
 
+    # Telegram: chat_id появляется, когда человек нажал «Подключить Telegram» и «Start» в боте.
+    telegram_chat_id = models.CharField(_("Telegram chat id"), max_length=32, blank=True, editable=False)
+    telegram_token = models.CharField(max_length=32, blank=True, editable=False)
+    telegram_token_at = models.DateTimeField(null=True, blank=True, editable=False)
+
     objects = UserManager()
 
     class Meta:

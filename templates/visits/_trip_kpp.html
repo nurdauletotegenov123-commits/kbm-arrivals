@@ -10,11 +10,14 @@
       {% include "visits/_trip_status.html" %}
     </div>
   </div>
+  {% if t.ban %}<div class="alert-line">⛔ {% translate "Машина в списке запрета въезда" %}: {{ t.ban.reason }}</div>{% endif %}
   {% if t.date != today %}<div class="warn-line">{% blocktranslate with d=t.date|date:"d.m.Y" %}Рейс на {{ d }}{% endblocktranslate %}</div>{% endif %}
   {% if t.pickup_place %}<div class="small"><span class="muted">{% translate "Место подачи" %}:</span> {{ t.pickup_place }}</div>{% endif %}
   {% if t.comment %}<div class="small muted">💬 {{ t.comment }}</div>{% endif %}
   {% if t.is_cargo %}
   <div class="cargo-text"><span class="muted small">{% translate "Груз" %}:</span> <b>{{ t.cargo }}</b></div>
+  {% if t.contract_number %}<div class="small"><span class="muted">{% translate "Договор" %}:</span> <b>{{ t.contract_number }}</b></div>{% endif %}
+  {% include "visits/_cargo_files.html" with cargo=t %}
   <div class="person-meta small">
     <span class="muted">№{{ t.request.number }}</span>
     <span><span class="k">{% translate "Цель" %}:</span> {{ t.request.purpose }}</span>
@@ -26,7 +29,7 @@
     {% for v in people %}{{ v.full_name }}{% if v.status == "arrived" and t.is_in %} ✓{% endif %}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</div>{% endif %}
   <div class="person-actions">
     {% if not t.entered_at %}
-      <form method="post" action="{% url 'kpp_trip_action' t.pk 'enter' %}">{% csrf_token %}
+      <form method="post" action="{% url 'kpp_trip_action' t.pk 'enter' %}"{% if t.ban %} onsubmit="return confirm('{% translate "Машина в списке запрета въезда. Всё равно отметить въезд?" %}')"{% endif %}>{% csrf_token %}
         <input type="hidden" name="next" value="{{ request.get_full_path }}">
         <button class="btn btn-green btn-big" type="submit">✓ {% translate "Машина въехала" %}</button>
       </form>

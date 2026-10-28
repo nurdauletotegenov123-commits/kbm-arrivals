@@ -21,6 +21,7 @@
     </span>
     <span><span class="k">{% translate "Отв." %}:</span> {{ v.request.contact_name }} <a href="tel:{{ v.request.contact_phone }}">{{ v.request.contact_phone }}</a></span>
   </div>
+  {% include "visits/_date_change.html" %}
   {% if v.request.comment %}<div class="small muted">💬 {{ v.request.comment }}</div>{% endif %}
   {% if v.camp_status == "checked_in" and v.status == "departed" %}<div class="warn-line">{% translate "Убыл через КПП, но не выселен" %}</div>{% endif %}
   {% if v.camp_status == "checked_in" and v.departure_date < today %}<div class="warn-line">{% blocktranslate with d=v.departure_date|date:"d.m.Y" %}Выезд был запланирован на {{ d }}{% endblocktranslate %}</div>{% endif %}

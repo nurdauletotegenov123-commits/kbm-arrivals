@@ -5,11 +5,28 @@
 на SQLite.
 """
 import os
+import sys
 from pathlib import Path
 
 from django.utils.translation import gettext_lazy as _
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _load_dotenv(path):
+    """Локальный запуск без Docker: подхватить .env из папки проекта.
+    Уже заданные переменные окружения (в Docker — из env_file) не перезаписываются."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+if "test" not in sys.argv[1:2]:  # автотесты не зависят от локального .env
+    _load_dotenv(BASE_DIR / ".env")
 
 
 def env(name, default=None):
@@ -153,6 +170,10 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# Загруженные файлы (документы на груз). Наружу напрямую не отдаются — только через проверку прав.
+MEDIA_ROOT = Path(env("MEDIA_ROOT", str(BASE_DIR / "media")))
+CARGO_FILE_MAX_MB = int(env("CARGO_FILE_MAX_MB", "10"))
+CARGO_FILES_MAX = 10
 if not DEBUG and "whitenoise.middleware.WhiteNoiseMiddleware" in MIDDLEWARE:
     # В рабочем режиме файлы получают хэш в имени (app.3f9c1a.css) — кэш браузера не мешает обновлениям.
     STORAGES = {
@@ -192,10 +213,17 @@ else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "arrivals@kbm.kz")
 NOTIFICATIONS_ENABLED = env_bool("NOTIFICATIONS_ENABLED", True)
+
+# Telegram-бот для уведомлений (см. README, «Уведомления в Telegram»). Без токена кнопок Telegram нет.
+TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_USERNAME = env("TELEGRAM_BOT_USERNAME", "").lstrip("@")
+TELEGRAM_ENABLED = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_USERNAME)
 SITE_URL = env("SITE_URL", "http://localhost:8000")
 
 # Сколько дней после даты прибытия «не прибывший» остаётся в отдельном блоке.
 NO_SHOW_DAYS = int(env("NO_SHOW_DAYS", "2"))
+# Сколько дней подсвечивать перенос дат заявителем у КПП, кэмпа и диспетчера
+DATE_CHANGE_DAYS = int(env("DATE_CHANGE_DAYS", "3"))
 
 # Регистрация заявителей с телефона (подрядчики, гости). 0 — регистрацию закрыть, аккаунты заводит админ.
 SIGNUP_ENABLED = env("SIGNUP_ENABLED", "1") == "1"

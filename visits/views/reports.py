@@ -14,13 +14,13 @@ from ..models import Visitor
 from .common import R
 
 REPORTS = {
-    "movements": (_("Прибытие и убытие (КПП)"), (R.SECURITY,)),
+    "movements": (_("Прибытие и убытие (КПП)"), (R.SECURITY, R.CHIEF)),
     "meals": (_("Сводка по питанию"), (R.CAMP,)),
     "camp": (_("Проживание в кэмпе"), (R.CAMP,)),
 }
 
 
-@role_required(R.SECURITY, R.CAMP)
+@role_required(R.SECURITY, R.CAMP, R.CHIEF)
 def reports(request):
     user = request.user
     available = [(key, title) for key, (title, roles) in REPORTS.items() if user.has_role(*roles)]

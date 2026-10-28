@@ -1,6 +1,7 @@
 {% extends "base.html" %}{% load i18n %}
 {% block title %}{% translate "Транспорт" %}{% endblock %}
 {% block content %}
+{% translate "Получайте в Telegram, кому нужна машина" as tg_text %}{% include "includes/telegram_hint.html" with text=tg_text %}
 <div class="page-head">
   <h1>{% translate "Транспорт" %} · {{ today|date:"d E, l" }}</h1>
   <div class="btn-row">
@@ -42,7 +43,7 @@
       </tr></thead>
       <tbody>{% for v in g.waiting %}<tr>
         <td><input type="checkbox" name="visitor" value="{{ v.pk }}" checked aria-label="{{ v.full_name }}"></td>
-        <td><b>{{ v.full_name }}</b><div class="small muted">{{ v.organization }}{% if v.position %} · {{ v.position }}{% endif %}</div></td>
+        <td><b>{{ v.full_name }}</b><div class="small muted">{{ v.organization }}{% if v.position %} · {{ v.position }}{% endif %}</div>{% include "visits/_date_change.html" %}</td>
         <td class="small">№{{ v.request.number }}<div class="muted">{{ v.request.purpose }}</div></td>
         <td class="nowrap">{% if tab == 'in' %}{{ v.arrival_time|time:"H:i"|default:"—" }}{% else %}{% include "visits/_status.html" %}{% endif %}</td>
         <td class="small">{{ v.request.contact_name }}<br><a href="tel:{{ v.request.contact_phone }}">{{ v.request.contact_phone }}</a></td>

@@ -1,6 +1,7 @@
 {% extends "base.html" %}{% load i18n %}
 {% block title %}{% translate "Согласование" %}{% endblock %}
 {% block content %}
+{% translate "Получайте новые заявки на согласование в Telegram" as tg_text %}{% include "includes/telegram_hint.html" with text=tg_text %}
 <div class="page-head"><h1>{% translate "Согласование заявок" %}</h1></div>
 <nav class="tabs">
   <a href="?tab=pending" class="{% if tab == 'pending' %}active{% endif %}">{% translate "Ждут решения" %}<span class="count{% if counts.pending %} warn{% endif %}">{{ counts.pending }}</span></a>

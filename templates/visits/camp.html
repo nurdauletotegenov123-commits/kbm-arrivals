@@ -20,6 +20,7 @@
   <a href="?tab=today" class="{% if tab == 'today' %}active{% endif %}">{% translate "Сегодня" %}</a>
   <a href="?tab=living" class="{% if tab == 'living' %}active{% endif %}">{% translate "Проживают" %}<span class="count">{{ counts.living }}</span></a>
   <a href="?tab=upcoming" class="{% if tab == 'upcoming' %}active{% endif %}">{% translate "Ближайшие дни" %}</a>
+  <a href="?tab=changes" class="{% if tab == 'changes' %}active{% endif %}">{% translate "Переносы дат" %}{% if counts.changes %}<span class="count warn">{{ counts.changes }}</span>{% endif %}</a>
   {% if q %}<a class="active" href="?q={{ q|urlencode }}">{% translate "Поиск" %}: {{ q }}</a>{% endif %}
 </nav>
 
@@ -34,15 +35,15 @@
   {% for d in days %}
     <h2 class="section-title">{{ d.date|date:"l, d E" }} <span class="badge badge-camp">{% blocktranslate with n=d.items|length %}заезд: {{ n }}{% endblocktranslate %}</span>{% if d.leaving %} <span class="badge">{% blocktranslate with n=d.leaving %}выезд: {{ n }}{% endblocktranslate %}</span>{% endif %}</h2>
     {% if d.items %}
-    <div class="table-wrap"><table>
+    <div class="table-wrap"><table class="stack">
       <thead><tr><th>{% translate "ФИО" %}</th><th>{% translate "Организация" %}</th><th>{% translate "Время" %}</th><th>{% translate "Выезд" %}</th><th>{% translate "Питание" %}</th><th>{% translate "Корпус / комната" %}</th></tr></thead>
       <tbody>{% for v in d.items %}<tr>
         <td><b>{{ v.full_name }}</b><div class="small muted">{{ v.position }}</div></td>
-        <td>{{ v.organization }}</td>
-        <td class="nowrap">{{ v.arrival_time|time:"H:i"|default:"—" }}</td>
-        <td class="nowrap">{{ v.departure_date|date:"d.m" }} ({{ v.nights }} {% translate "ноч." %})</td>
-        <td class="small">{{ v.meals_display|default:"—" }}</td>
-        <td>
+        <td data-label="{% translate 'Организация' %}">{{ v.organization }}</td>
+        <td data-label="{% translate 'Время' %}" class="nowrap">{{ v.arrival_time|time:"H:i"|default:"—" }}</td>
+        <td data-label="{% translate 'Выезд' %}" class="nowrap">{{ v.departure_date|date:"d.m" }} ({{ v.nights }} {% translate "ноч." %})</td>
+        <td data-label="{% translate 'Питание' %}" class="small">{{ v.meals_display|default:"—" }}</td>
+        <td data-label="{% translate 'Корпус / комната' %}">
           <form class="room-form" method="post" action="{% url 'camp_action' v.pk 'room' %}">{% csrf_token %}
             <input type="hidden" name="next" value="{{ request.get_full_path }}">
             <input type="text" name="building" value="{{ v.camp_building }}" placeholder="{% translate 'Корпус' %}" style="min-height:38px;width:6rem">

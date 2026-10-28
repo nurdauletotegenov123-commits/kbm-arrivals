@@ -8,7 +8,7 @@ from django.views.decorators.http import require_POST
 
 from accounts.decorators import role_required
 
-from .. import services
+from .. import bans, services
 from ..forms import RejectForm
 from ..models import Request, Visitor
 from ..notifications import notify_request
@@ -32,6 +32,10 @@ def approval_list(request):
     if q:
         qs = qs.filter(Q(pk__in=Visitor.objects.search(q).values("request_id")) | Q(purpose__icontains=q))
     page = Paginator(qs, 30).get_page(request.GET.get("page"))
+    index = bans.BanIndex()
+    for r in page.object_list:
+        r.has_ban = any(index.for_visitor(v) for v in r.visitors.all() if v.status == Visitor.Status.EXPECTED) or \
+            any(index.for_trip(t) for t in r.cargo_trips.all())
     return render(request, "visits/approval_list.html", {"page": page, "tab": tab, "q": q, "counts": counts})
 
 
@@ -74,3 +78,20 @@ def request_reject(request, pk):
     notify_request(req, "reject")
     messages.info(request, _("Заявка №%(n)s отклонена.") % {"n": req.number})
     return redirect("approval_list")
+
+
+@require_POST
+@role_required(R.CHIEF)
+def request_revoke(request, pk):
+    req = get_object_or_404(Request, pk=pk)
+    form = RejectForm(request.POST)
+    try:
+        if not form.is_valid():
+            raise services.ActionError(_("Укажите причину — её увидит заявитель."))
+        req = services.revoke_approval(req, request.user, form.cleaned_data["reason"], request=request)
+    except services.ActionError as e:
+        messages.warning(request, str(e))
+        return redirect("request_detail", pk=pk)
+    notify_request(req, "revoke")
+    messages.info(request, _("Согласование заявки №%(n)s отозвано.") % {"n": req.number})
+    return redirect("request_detail", pk=pk)

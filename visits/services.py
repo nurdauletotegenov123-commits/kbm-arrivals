@@ -7,7 +7,7 @@ from django.utils.translation import gettext as _
 from audit.models import AuditLog
 from audit.utils import log_action
 
-from .models import Request, Trip, Visitor
+from .models import CargoFile, Request, Trip, Visitor
 from .notifications import notify_trip
 
 S = Visitor.Status
@@ -212,8 +212,51 @@ def reject_request(req, user, reason, request=None):
     return req
 
 
+@transaction.atomic
+def revoke_approval(req, user, reason, request=None):
+    """Отозвать уже согласованную заявку. Ещё не прибывшие пропадают с КПП, у кэмпа и диспетчера
+    и снимаются с машин; кто уже на территории — остаётся виден. Заявитель может исправить и отправить снова."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise ActionError(_("Укажите причину — её увидит заявитель."))
+    req = _locked_request(req)
+    if req.is_cancelled or not req.is_approved:
+        raise ActionError(_("Заявка №%(n)s не в статусе «Согласована».") % {"n": req.number})
+    unseated = []
+    for v in req.visitors.select_for_update().filter(status=S.EXPECTED):
+        if v.arrival_trip_id or v.departure_trip_id:
+            v.arrival_trip = v.departure_trip = None
+            v.save(update_fields=["arrival_trip", "departure_trip"])
+            unseated.append(v.full_name)
+    req.approval, req.approved_by, req.approved_at, req.reject_reason = P.REJECTED, user, timezone.now(), reason
+    req.save(update_fields=["approval", "approved_by", "approved_at", "reject_reason", "updated_at"])
+    changes = {"approval": [P.APPROVED, P.REJECTED], "причина": reason}
+    if unseated:
+        changes["сняты с машин"] = unseated
+    log_action(request, A.REQUEST_REVOKE, req, changes, user=user)
+    return req
+
+
+def add_ban(ban, user, request=None):
+    ban.created_by = user
+    ban.save()
+    log_action(request, A.BAN_ADD, ban, {"ФИО": ban.full_name, "госномер": ban.vehicle_plate or None,
+                                         "документ": "указан" if ban.doc_number else None, "причина": ban.reason},
+               user=user)
+    return ban
+
+
+def lift_ban(ban, user, request=None):
+    if not ban.is_active:
+        raise ActionError(_("Запрет уже снят."))
+    ban.is_active, ban.lifted_by, ban.lifted_at = False, user, timezone.now()
+    ban.save(update_fields=["is_active", "lifted_by", "lifted_at"])
+    log_action(request, A.BAN_LIFT, ban, user=user)
+    return ban
+
+
 def resubmit_if_rejected(req, user, request=None):
-    """Заявитель исправил отклонённую заявку — она снова уходит на согласование."""
+    """Заявитель исправил отклонённую (или отозванную) заявку — она снова уходит на согласование."""
     if not req.is_rejected:
         return False
     req.approval, req.approved_by, req.approved_at = P.PENDING, None, None
@@ -225,7 +268,7 @@ def resubmit_if_rejected(req, user, request=None):
 # --- транспорт (диспетчер и КПП) ---
 
 TRIP_FIELDS = ["time", "pickup_place", "vehicle_make", "vehicle_plate", "driver_name", "driver_phone", "comment"]
-CARGO_FIELDS = ["date", "time", "vehicle_make", "vehicle_plate", "driver_name", "driver_phone", "cargo"]
+CARGO_FIELDS = ["contract_number", "date", "time", "vehicle_make", "vehicle_plate", "driver_name", "driver_phone", "cargo"]
 
 
 def _trip_snapshot(trip, fields=TRIP_FIELDS):
@@ -322,6 +365,21 @@ def save_cargo(req, trip, before, user, request=None):
     if changes:
         log_action(request, A.CARGO_SET, trip, changes, user=user)
     return trip
+
+
+def save_cargo_files(trip, new_files, delete_ids, user, request=None):
+    """Приложить новые документы к грузу и удалить отмеченные."""
+    removed = []
+    for f in trip.files.filter(pk__in=delete_ids):
+        removed.append(f.name)
+        f.delete()  # файл с диска удаляет сигнал post_delete
+    added = []
+    for upload in new_files:
+        CargoFile.objects.create(trip=trip, file=upload, name=upload.name[:200], size=upload.size, uploaded_by=user)
+        added.append(upload.name)
+    if added or removed:
+        log_action(request, A.CARGO_SET, trip, {k: v for k, v in (("файлы добавлены", added), ("файлы удалены", removed)) if v},
+                   user=user)
 
 
 def delete_cargo(trip, user, request=None):

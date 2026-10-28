@@ -1,0 +1,97 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Обстановка" %}{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="60">{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% translate "Обстановка" %} · {{ today|date:"d E, l" }}</h1>
+  <span class="muted small">{% blocktranslate with t=now|time:"H:i" %}Обновлено в {{ t }}, обновляется каждую минуту{% endblocktranslate %}</span>
+</div>
+
+<form class="searchbar" method="get" action="{% url 'people_search' %}">
+  <input type="search" name="q" placeholder="{% translate 'Проверить человека или машину: ФИО, ИИН, госномер' %}">
+  <button class="btn" type="submit">{% translate "Проверить" %}</button>
+</form>
+
+{% if alerts %}
+<div class="alert-box">
+  <b>⛔ {% translate "Запрет въезда — совпадения" %}</b>
+  <ul>{% for x in alerts %}<li>{% if x.full_name %}{{ x.full_name }} · {{ x.organization }} · {% include "visits/_status.html" with v=x %}{% else %}<span class="plate">{{ x.vehicle_plate }}</span> {{ x.vehicle_make }} · {{ x.get_direction_display }}{% endif %}
+    — <span class="muted">{{ x.ban.reason }}</span>{% if x.request_id %} · <a href="{% url 'request_detail' x.request_id %}">№{{ x.request.number }}</a>{% endif %}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<div class="stats">
+  <a class="stat" href="#on-site"><b>{{ stats.on_site }}</b><span>{% translate "людей на территории" %}</span></a>
+  <a class="stat" href="#trips"><b>{{ stats.trips_inside }}</b><span>{% translate "машин на территории" %}</span></a>
+  <a class="stat" href="#expected"><b>{{ stats.expected }}</b><span>{% blocktranslate with a=stats.arrived_today %}ещё ожидаются сегодня (прибыли: {{ a }}){% endblocktranslate %}</span></a>
+  <a class="stat{% if stats.no_shows %} warn{% endif %}" href="#no-shows"><b>{{ stats.no_shows }}</b><span>{% translate "не прибыли" %}</span></a>
+  <a class="stat{% if stats.overdue %} warn{% endif %}" href="#on-site"><b>{{ stats.overdue }}</b><span>{% translate "просрочен выезд" %}</span></a>
+  <a class="stat" href="#cargo"><b>{{ stats.cargo_today }}</b><span>{% translate "груз сегодня" %}</span></a>
+  <a class="stat{% if stats.pending %} warn{% endif %}" href="{% url 'approval_list' %}"><b>{{ stats.pending }}</b><span>{% translate "ждут вашего согласования" %}</span></a>
+  <div class="stat"><b>{{ stats.waiting_car }}</b><span>{% translate "ждут машину (сегодня и завтра)" %}</span></div>
+</div>
+
+<div class="monitor-grid">
+  <section>
+    <h2 class="section-title" id="on-site">{% translate "На территории по организациям" %} <span class="badge">{{ stats.on_site }}</span></h2>
+    {% if by_org %}<div class="card flush">
+      {% for org, people in by_org.items %}
+      <details class="org-row">
+        <summary><span>{{ org }}</span><b>{{ people|length }}</b></summary>
+        <ul class="org-people">{% for v in people %}
+          <li class="{% if v.is_overdue %}overdue{% endif %}{% if v.ban %} banned{% endif %}">
+            <span>{{ v.full_name }}{% if v.position %} <span class="muted">· {{ v.position }}</span>{% endif %}</span>
+            <span class="small muted nowrap">{% translate "с" %} {{ v.arrived_at|date:"d.m H:i" }}{% if v.arrived_checkpoint %} · {{ v.arrived_checkpoint }}{% endif %} · {% translate "до" %} {{ v.departure_date|date:"d.m" }}{% if v.is_overdue %} ⚠{% endif %}</span>
+          </li>{% endfor %}</ul>
+      </details>
+      {% endfor %}
+    </div>{% else %}<div class="empty">{% translate "На территории никого нет." %}</div>{% endif %}
+
+    <h2 class="section-title" id="expected">{% translate "Ожидаются сегодня" %} <span class="badge">{{ expected|length }}</span></h2>
+    {% if expected %}<div class="table-wrap"><table class="stack">
+      <thead><tr><th>{% translate "ФИО" %}</th><th>{% translate "Организация" %}</th><th>{% translate "Время" %}</th><th>{% translate "Как едет" %}</th></tr></thead>
+      <tbody>{% for v in expected %}<tr{% if v.ban %} class="row-ban"{% endif %}>
+        <td><a href="{% url 'request_detail' v.request_id %}">{{ v.full_name }}</a></td>
+        <td data-label="{% translate 'Организация' %}" class="small">{{ v.organization }}</td>
+        <td data-label="{% translate 'Время' %}" class="nowrap">{{ v.arrival_time|time:"H:i"|default:"—" }}</td>
+        <td data-label="{% translate 'Как едет' %}" class="small">{% if v.arrival_trip %}<span class="plate">{{ v.arrival_trip.vehicle_plate }}</span> {% translate "машина КБМ" %}{% elif v.vehicle_plate %}<span class="plate">{{ v.vehicle_plate }}</span> {{ v.vehicle_make }}{% else %}—{% endif %}</td>
+      </tr>{% endfor %}</tbody></table></div>
+    {% else %}<div class="empty">{% translate "На сегодня больше никого не ожидается." %}</div>{% endif %}
+
+    {% if no_shows %}
+    <h2 class="section-title warn" id="no-shows">{% translate "Не прибыли в назначенный день" %} <span class="badge">{{ no_shows|length }}</span></h2>
+    <div class="table-wrap"><table class="stack"><tbody>{% for v in no_shows %}<tr>
+      <td><a href="{% url 'request_detail' v.request_id %}">{{ v.full_name }}</a></td><td data-label="{% translate 'Организация' %}" class="small">{{ v.organization }}</td>
+      <td data-label="{% translate 'Ожидался' %}" class="nowrap">{{ v.arrival_date|date:"d.m" }}</td></tr>{% endfor %}</tbody></table></div>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2 class="section-title" id="trips">{% translate "Машины на территории" %} <span class="badge">{{ trips_inside|length }}</span></h2>
+    {% if trips_inside %}<div class="card flush"><ul class="feed">{% for t in trips_inside %}
+      <li{% if t.ban %} class="banned"{% endif %}><span class="plate">{{ t.vehicle_plate }}</span> <b>{{ t.vehicle_make }}</b> <span class="badge badge-trip-{{ t.direction }}">{{ t.get_direction_display }}</span>
+        <div class="small muted">{{ t.driver_name }} · {% translate "въехала" %} {{ t.entered_at|date:"d.m H:i" }}{% if t.entered_at|date:"Ymd" != today|date:"Ymd" %} ⚠{% endif %}</div></li>
+    {% endfor %}</ul></div>{% else %}<div class="empty">{% translate "Машин на территории нет." %}</div>{% endif %}
+
+    <h2 class="section-title" id="cargo">{% translate "Груз сегодня" %} <span class="badge">{{ cargo_today|length }}</span></h2>
+    {% if cargo_today %}<div class="card flush"><ul class="feed">{% for t in cargo_today %}
+      <li{% if t.ban %} class="banned"{% endif %}><span class="plate">{{ t.vehicle_plate }}</span> {{ t.cargo|truncatechars:60 }}
+        <div class="small muted">{% translate "Договор" %} {{ t.contract_number|default:"—" }} · {% if t.exited_at %}{% translate "выехала" %} {{ t.exited_at|time:"H:i" }}{% elif t.entered_at %}{% translate "въехала" %} {{ t.entered_at|time:"H:i" }}{% else %}{% translate "ещё не въехала" %}{% endif %}
+          · <a href="{% url 'request_detail' t.request_id %}">№{{ t.request.number }}</a></div></li>
+    {% endfor %}</ul></div>{% else %}<div class="empty">{% translate "Сегодня груза нет." %}</div>{% endif %}
+
+    <h2 class="section-title">{% translate "По КПП сегодня" %}</h2>
+    {% if checkpoints %}<div class="table-wrap"><table>
+      <thead><tr><th>{% translate "КПП" %}</th><th>{% translate "Прибыли" %}</th><th>{% translate "Убыли" %}</th></tr></thead>
+      <tbody>{% for c in checkpoints %}<tr><td>{{ c.arrived_checkpoint__name|default:"—" }}</td><td>{{ c.arrived }}</td><td>{{ c.departed }}</td></tr>{% endfor %}</tbody>
+    </table></div>{% else %}<div class="empty">{% translate "Сегодня отметок не было." %}</div>{% endif %}
+
+    <h2 class="section-title">{% translate "Последние отметки КПП" %}</h2>
+    {% if feed %}<div class="card flush"><ul class="feed">{% for e in feed %}
+      <li><span class="nowrap"><b>{{ e.created_at|date:"H:i" }}</b>{% if e.created_at|date:"Ymd" != today|date:"Ymd" %} <span class="muted small">{{ e.created_at|date:"d.m" }}</span>{% endif %}</span>
+        {{ e.get_action_display }} — {{ e.object_repr }}
+        <div class="small muted">{{ e.user|default:e.username }}{% if e.changes.КПП %} · {{ e.changes.КПП }}{% endif %}</div></li>
+    {% endfor %}</ul></div>{% else %}<div class="empty">{% translate "Отметок ещё нет." %}</div>{% endif %}
+  </section>
+</div>
+{% endblock %}

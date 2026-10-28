@@ -1,0 +1,7 @@
+{% load i18n %}{% if telegram_enabled and not user.telegram_chat_id %}
+<div class="tg-hint">
+  <span>{{ text }}</span>
+  <form method="post" action="{% url 'telegram_connect' %}">{% csrf_token %}
+    <button class="btn btn-sm btn-primary" type="submit">{% translate "Подключить Telegram" %}</button></form>
+</div>
+{% endif %}

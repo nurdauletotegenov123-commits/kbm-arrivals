@@ -1,0 +1,5 @@
+{% load i18n %}{% with files=cargo.files.all %}{% if files %}
+<ul class="file-list">
+  {% for f in files %}<li><a href="{% url 'cargo_file' f.pk %}" target="_blank" rel="noopener">📎 {{ f.name }}</a> <span class="muted small">{{ f.size|filesizeformat }}</span></li>{% endfor %}
+</ul>
+{% endif %}{% endwith %}

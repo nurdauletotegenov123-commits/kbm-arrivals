@@ -2,7 +2,10 @@
 {% block title %}{% translate "Обзор" %}{% endblock %}
 {% block content %}
 <div class="page-head"><h1>{% translate "Обзор" %} · {{ today|date:"d E Y" }}</h1>
-  <a class="btn btn-primary" href="{% url 'request_create' %}">+ {% translate "Новая заявка" %}</a></div>
+  <div class="btn-row"><a class="btn" href="{% url 'monitor' %}">{% translate "Обстановка" %}</a>
+    <a class="btn" href="{% url 'people_search' %}">{% translate "Проверка" %}</a>
+    <a class="btn" href="{% url 'ban_list' %}">{% translate "Запрет въезда" %}</a>
+    <a class="btn btn-primary" href="{% url 'request_create' %}">+ {% translate "Новая заявка" %}</a></div></div>
 <div class="stats">
   <a class="stat{% if stats.pending %} warn{% endif %}" href="{% url 'approval_list' %}"><b>{{ stats.pending }}</b><span>{% translate "ждут согласования" %}</span></a>
   <a class="stat" href="{% url 'kpp' %}"><b>{{ stats.expected }}</b><span>{% translate "ожидаются сегодня" %}</span></a>

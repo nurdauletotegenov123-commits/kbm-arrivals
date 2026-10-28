@@ -1,5 +1,8 @@
 from datetime import timedelta
+import os
+import tempfile
 from io import BytesIO
+from unittest import mock
 
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -13,7 +16,8 @@ from audit.models import AuditLog
 
 from .excel import parse_people
 from .notifications import notify_request
-from .models import Organization, Request, Trip, Visitor
+from . import services
+from .models import CargoFile, EntryBan, Organization, Request, Trip, Visitor
 
 R = User.Role
 
@@ -514,7 +518,8 @@ class ApprovalTests(Base):
 class CargoTests(Base):
     def form_data(self, **cargo):
         data = RequestFormTests.post_data(self)
-        data.update({"cargo-has_cargo": "on", "cargo-date": self.today.isoformat(), "cargo-vehicle_make": "КАМАЗ",
+        data.update({"cargo-has_cargo": "on", "cargo-contract_number": "№ 245-КБМ",
+                     "cargo-date": self.today.isoformat(), "cargo-vehicle_make": "КАМАЗ",
                      "cargo-vehicle_plate": "512 brs 12", "cargo-driver_name": "Водитель", "cargo-cargo": "Трубы 120 шт."})
         data.update(cargo)
         return data
@@ -550,3 +555,235 @@ class CargoTests(Base):
         data.update({"visitors-INITIAL_FORMS": "1", "visitors-0-id": str(v.pk), "visitors-0-request": str(req.pk)})
         self.client.post(reverse("request_edit", args=[req.pk]), data)
         self.assertFalse(Trip.objects.exists())
+
+
+@override_settings(NOTIFICATIONS_ENABLED=True, TELEGRAM_BOT_TOKEN="1:a", TELEGRAM_BOT_USERNAME="b", TELEGRAM_ENABLED=True)
+class TelegramNotifyTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.chief = make_user("chief", R.CHIEF)
+        for i, u in enumerate((self.chief, self.dispatcher, self.applicant), start=1):
+            u.telegram_chat_id = str(i)  # e-mail ни у кого нет — только Telegram
+            u.save()
+        self.sent = {}
+        patcher = mock.patch("accounts.telegram.api",
+                             side_effect=lambda method, **p: self.sent.setdefault(p["chat_id"], []).append(p["text"]))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_chain_chief_dispatcher_applicant(self):
+        req = Request.objects.create(author=self.applicant, purpose="Ремонт", contact_name="Отв", contact_phone="1")
+        v = self.visitor(request=req, needs_transport=True)
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_request(req, "create")
+        self.assertIn("Новая заявка на согласование", self.sent["1"][0])
+
+        self.login(self.chief)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("request_approve", args=[req.pk]), {"shown": [v.pk], "admit": [v.pk]})
+        self.assertIn("Назначьте машину", self.sent["2"][0])
+        self.assertIn("согласована", self.sent["3"][0])
+
+        self.login(self.dispatcher)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("dispatch_assign"), {
+                "direction": "in", "date": self.today.isoformat(), "visitor": [v.pk], "new-vehicle_make": "Hyundai County",
+                "new-vehicle_plate": "045KRS12", "new-driver_name": "Ахметов", "new-driver_phone": "+7 707 1"})
+        text = self.sent["3"][-1]
+        self.assertIn("045KRS12", text)
+        self.assertIn("Ахметов, +7 707 1", text)
+        self.assertEqual(len(mail.outbox), 0)
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="kbm-media-"))
+class CargoFileTests(CargoTests):
+    def pdf(self, name="договор.pdf", size=100):
+        return SimpleUploadedFile(name, b"%PDF-1.4" + b"0" * size, content_type="application/pdf")
+
+    def create_with_files(self, *files):
+        self.login(self.applicant)
+        return self.client.post(reverse("request_create"), {**self.form_data(), "cargo-files": list(files)})
+
+    def test_contract_number_required(self):
+        self.login(self.applicant)
+        resp = self.client.post(reverse("request_create"), self.form_data(**{"cargo-contract_number": ""}))
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Trip.objects.exists())
+
+    def test_upload_and_access(self):
+        self.create_with_files(self.pdf(), self.pdf("накладная.pdf"))
+        trip = Trip.objects.get()
+        self.assertEqual(trip.contract_number, "№ 245-КБМ")
+        f = trip.files.get(name="договор.pdf")
+        url = reverse("cargo_file", args=[f.pk])
+        self.assertEqual(self.client.get(url).status_code, 200)  # автор
+        self.login(self.security)
+        self.assertEqual(self.client.get(url).status_code, 403)  # заявка ещё не согласована
+        Request.objects.update(approval=Request.Approval.APPROVED)
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(b"".join(resp.streaming_content).startswith(b"%PDF"))
+        self.assertContains(self.client.get(reverse("kpp"), {"tab": "trips"}), "договор.pdf")
+        for user in (self.other, self.dispatcher, self.camp):
+            self.login(user)
+            self.assertEqual(self.client.get(url).status_code, 403)
+
+    def test_bad_type_and_size_rejected(self):
+        resp = self.create_with_files(SimpleUploadedFile("virus.exe", b"MZ"))
+        self.assertContains(resp, "можно PDF")
+        with self.settings(CARGO_FILE_MAX_MB=0):
+            resp = self.create_with_files(self.pdf())
+        self.assertContains(resp, "больше 0 МБ")
+        self.assertFalse(Trip.objects.exists())
+
+    def test_delete_file_removes_it_from_disk(self):
+        self.create_with_files(self.pdf())
+        req, v, f = Request.objects.get(), Visitor.objects.get(), CargoFile.objects.get()
+        path = f.file.path
+        data = self.form_data()
+        data.update({"visitors-INITIAL_FORMS": "1", "visitors-0-id": str(v.pk), "visitors-0-request": str(req.pk),
+                     "cargo-delete_file": [str(f.pk)]})
+        self.client.post(reverse("request_edit", args=[req.pk]), data)
+        self.assertFalse(CargoFile.objects.exists())
+        self.assertFalse(os.path.exists(path))
+
+
+class ChiefToolsTests(ApprovalTests):
+    def test_monitor_and_search_only_for_chief(self):
+        v = self.visitor(full_name="На Территории")
+        services.mark_arrived(v.pk, self.security)
+        self.login(self.chief)
+        resp = self.client.get(reverse("monitor"))
+        self.assertContains(resp, "На Территории")
+        self.assertContains(resp, "ТОО Тест")
+        self.assertContains(self.client.get(reverse("people_search"), {"q": "900101300123"}), "На Территории")
+        self.assertEqual(self.client.get(reverse("home")).url, reverse("monitor"))
+        for user in (self.applicant, self.security, self.dispatcher, self.camp):
+            self.login(user)
+            self.assertEqual(self.client.get(reverse("monitor")).status_code, 403)
+
+    def test_ban_flags_approval_and_kpp(self):
+        req, v = self.pending(full_name="Нарушитель Тест")
+        self.login(self.chief)
+        self.client.post(reverse("ban_list"), {"full_name": "Нарушитель", "doc_number": "9001 0130 0123",
+                                               "vehicle_plate": "", "reason": "Нарушение ТБ"})
+        ban = EntryBan.objects.get()
+        self.assertEqual(ban.doc_number, "900101300123")
+        self.assertContains(self.client.get(reverse("approval_list")), "запрет въезда")
+        resp = self.client.get(reverse("request_detail", args=[req.pk]))
+        self.assertContains(resp, "Нарушение ТБ")
+        self.assertContains(resp, f'name="admit" value="{v.pk}">')  # галочка «допустить» снята
+        self.login(self.applicant)  # заявитель запрет не видит
+        self.assertNotContains(self.client.get(reverse("request_detail", args=[req.pk])), "Нарушение ТБ")
+        Request.objects.update(approval=Request.Approval.APPROVED)
+        self.login(self.security)
+        self.assertContains(self.client.get(reverse("kpp")), "Запрет въезда")
+        self.login(self.chief)
+        self.client.post(reverse("ban_lift", args=[ban.pk]))
+        ban.refresh_from_db()
+        self.assertFalse(ban.is_active)
+        self.assertTrue(AuditLog.objects.filter(action=AuditLog.Action.BAN_ADD).exists())
+        self.assertNotIn("900101300123", str(list(AuditLog.objects.values_list("changes", flat=True))))
+
+    def test_ban_needs_document_or_plate(self):
+        self.login(self.chief)
+        resp = self.client.post(reverse("ban_list"), {"full_name": "Кто-то", "reason": "Причина"})
+        self.assertContains(resp, "Укажите ИИН/документ или госномер")
+        self.assertFalse(EntryBan.objects.exists())
+
+    def test_revoke_keeps_people_on_site(self):
+        req, waiting = self.pending(full_name="Ещё Не Приехал", needs_transport=True)
+        here = self.visitor(request=req, full_name="Уже Здесь")
+        Request.objects.update(approval=Request.Approval.APPROVED)
+        trip, _ = services.assign_trip(Trip(direction="in", date=self.today, vehicle_make="Bus", vehicle_plate="111AAA01",
+                                            driver_name="Вод"), [waiting.pk], self.dispatcher)
+        services.mark_arrived(here.pk, self.security)
+        self.login(self.chief)
+        self.client.post(reverse("request_revoke", args=[req.pk]), {"reason": "Отменён допуск подрядчика"})
+        req.refresh_from_db()
+        waiting.refresh_from_db()
+        self.assertTrue(req.is_rejected)
+        self.assertIsNone(waiting.arrival_trip)
+        self.login(self.security)
+        resp = self.client.get(reverse("kpp"), {"tab": "on_site"})
+        self.assertContains(resp, "Уже Здесь")
+        self.assertNotContains(self.client.get(reverse("kpp")), "Ещё Не Приехал")
+        self.client.post(reverse("kpp_action", args=[here.pk, "depart"]))  # уехать можно
+        here.refresh_from_db()
+        self.assertEqual(here.status, Visitor.Status.DEPARTED)
+
+    def test_chief_downloads_movements_report(self):
+        self.login(self.chief)
+        resp = self.client.get(reverse("reports"), {"kind": "movements", "date_from": self.today.isoformat(),
+                                                    "date_to": self.today.isoformat()})
+        self.assertEqual(resp["Content-Type"].split(";")[0],
+                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@override_settings(NOTIFICATIONS_ENABLED=True, EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class DateChangeTests(Base):
+    def setUp(self):
+        super().setUp()
+        for u, mail_ in ((self.camp, "camp@kbm.kz"), (self.security, "sec@kbm.kz"), (self.dispatcher, "disp@kbm.kz")):
+            u.email = mail_
+            u.save()
+
+    def edit(self, v, **changes):
+        """Отправить форму заявки, поменяв поля человека."""
+        data = RequestFormTests.post_data(self)
+        fields = {"full_name": v.full_name, "doc_number": v.doc_number, "organization_name": v.organization.name,
+                  "arrival_date": v.arrival_date.isoformat(), "departure_date": v.departure_date.isoformat(),
+                  "needs_camp": v.needs_camp, "needs_meals": v.needs_meals, "lunch": v.lunch,
+                  "needs_transport": v.needs_transport}
+        fields.update(changes)
+        for k, val in fields.items():
+            data.pop(f"visitors-0-{k}", None)
+            if val is True:
+                val = "on"
+            if val is not False:
+                data[f"visitors-0-{k}"] = val
+        data.update({"visitors-INITIAL_FORMS": "1", "visitors-0-id": str(v.pk), "visitors-0-request": str(v.request_id),
+                     "purpose": v.request.purpose, "contact_name": v.request.contact_name,
+                     "contact_phone": v.request.contact_phone})
+        self.login(self.applicant)
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(reverse("request_edit", args=[v.request_id]), data)
+        self.assertEqual(resp.status_code, 302, getattr(resp, "context", None) and resp.context["formset"].errors)
+        v.refresh_from_db()
+        return v
+
+    def test_departure_change_shown_and_sent_to_camp(self):
+        v = self.visitor(full_name="Живёт В Кэмпе", needs_camp=True)
+        services.mark_arrived(v.pk, self.security)
+        old = v.departure_date
+        new = old + timedelta(days=3)
+        v = self.edit(v, departure_date=new.isoformat())
+        self.assertEqual(v.date_change, {"departure": (old, new)})
+        camp_mail = [m for m in mail.outbox if m.to == ["camp@kbm.kz"]]
+        self.assertEqual(len(camp_mail), 1)
+        self.assertIn("Перенос дат", camp_mail[0].subject)
+        self.assertIn(f"выезд {old:%d.%m} → {new:%d.%m}", camp_mail[0].body)
+        self.assertFalse([m for m in mail.outbox if m.to == ["disp@kbm.kz"]])  # транспорт не нужен
+        self.login(self.camp)
+        resp = self.client.get(reverse("camp"), {"tab": "changes"})
+        self.assertContains(resp, "Живёт В Кэмпе")
+        self.assertContains(resp, "Выезд перенесён")
+
+    def test_camp_not_bothered_by_non_camp_changes(self):
+        v = self.visitor(full_name="Без Кэмпа")
+        self.edit(v, departure_date=(v.departure_date + timedelta(days=1)).isoformat())
+        self.assertEqual([m.to for m in mail.outbox], [["sec@kbm.kz"]])
+
+    def test_meals_change_goes_to_camp_only(self):
+        v = self.visitor(full_name="Ест", needs_meals=True, lunch=True)
+        self.edit(v, needs_meals=False, lunch=False)
+        self.assertEqual([m.to for m in mail.outbox], [["camp@kbm.kz"]])
+        self.assertIn("питание снято", mail.outbox[0].body)
+        self.assertIsNone(Visitor.objects.get(pk=v.pk).date_change)
+
+    def test_pending_request_changes_not_tracked(self):
+        req = Request.objects.create(author=self.applicant, purpose="Работы", contact_name="Отв", contact_phone="1")
+        v = self.visitor(request=req, needs_camp=True)
+        v = self.edit(v, departure_date=(v.departure_date + timedelta(days=2)).isoformat())
+        self.assertIsNone(v.date_change)
+        self.assertEqual(len(mail.outbox), 0)

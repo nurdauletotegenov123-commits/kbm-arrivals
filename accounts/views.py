@@ -11,16 +11,18 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.translation import gettext as _
+from django.views.decorators.http import require_POST
 
 from audit.models import AuditLog
 from audit.utils import client_ip, diff_fields, log_action
 
+from . import telegram
 from .decorators import role_required
 from .forms import USER_FIELDS, LoginForm, PasswordForm, SignupForm, UserCreateForm, UserForm
 from .models import User
 
 R = User.Role
-HOME_BY_ROLE = {R.APPLICANT: "request_list", R.CHIEF: "approval_list", R.SECURITY: "kpp", R.CAMP: "camp",
+HOME_BY_ROLE = {R.APPLICANT: "request_list", R.CHIEF: "monitor", R.SECURITY: "kpp", R.CAMP: "camp",
                 R.DISPATCHER: "dispatch"}
 
 
@@ -146,4 +148,28 @@ def own_password(request):
         log_action(request, AuditLog.Action.USER_PASSWORD, request.user)
         messages.success(request, _("Пароль изменён."))
         return redirect("home")
-    return render(request, "accounts/user_password.html", {"form": form, "obj": request.user, "own": True})
+    return render(request, "accounts/user_password.html", {
+        "form": form, "obj": request.user, "own": True, "telegram_enabled": settings.TELEGRAM_ENABLED,
+    })
+
+
+@require_POST
+@login_required
+def telegram_connect(request):
+    """Одноразовая ссылка на бота: человек жмёт «Start», бот запоминает его chat_id."""
+    if not settings.TELEGRAM_ENABLED:
+        raise Http404
+    return redirect(telegram.link_url(request.user))
+
+
+@require_POST
+@login_required
+def telegram_disconnect(request):
+    user = request.user
+    if user.telegram_chat_id:
+        telegram.send_message(user.telegram_chat_id, _("Уведомления отключены на сайте."))
+        user.telegram_chat_id = ""
+        user.save(update_fields=["telegram_chat_id"])
+        log_action(request, AuditLog.Action.USER_UPDATE, user, {"telegram": "отключён"})
+    messages.info(request, _("Telegram отключён."))
+    return redirect("own_password")

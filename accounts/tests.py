@@ -1,9 +1,15 @@
+from datetime import timedelta
+from unittest import mock
+
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from django.urls import reverse
 
 from audit.models import AuditLog
 
+from . import telegram
 from .forms import normalize_phone
+from .management.commands.telegram_bot import Command
 from .models import User
 
 
@@ -59,3 +65,43 @@ class SignupTests(TestCase):
     @override_settings(SIGNUP_ENABLED=False)
     def test_signup_can_be_disabled(self):
         self.assertEqual(self.client.get(reverse("signup")).status_code, 404)
+
+
+@override_settings(TELEGRAM_BOT_TOKEN="123:abc", TELEGRAM_BOT_USERNAME="kbm_test_bot", TELEGRAM_ENABLED=True)
+class TelegramLinkTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("zayav", password="x-pass-123", full_name="Заявитель Тестовый")
+        self.sent = []
+        patcher = mock.patch("accounts.telegram.api", side_effect=lambda method, **p: self.sent.append((method, p)) or {})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.bot = Command()
+
+    def start(self, text, chat_id=555):
+        self.bot.on_message({"chat": {"id": chat_id, "type": "private"}, "text": text})
+
+    def test_connect_by_link_and_stop(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(reverse("telegram_connect"))
+        self.user.refresh_from_db()
+        self.assertEqual(resp["Location"], f"https://t.me/kbm_test_bot?start={self.user.telegram_token}")
+        self.start(f"/start {self.user.telegram_token}")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.telegram_chat_id, "555")
+        self.assertEqual(self.user.telegram_token, "")  # ссылка одноразовая
+        self.assertIn("Telegram подключён", self.sent[-1][1]["text"])
+        self.start("/stop")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.telegram_chat_id, "")
+
+    def test_expired_or_wrong_token(self):
+        telegram.link_url(self.user)
+        User.objects.filter(pk=self.user.pk).update(telegram_token_at=timezone.now() - timedelta(days=2))
+        self.start(f"/start {self.user.telegram_token}")
+        self.start("/start чужой")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.telegram_chat_id, "")
+
+    def test_profile_shows_button(self):
+        self.client.force_login(self.user)
+        self.assertContains(self.client.get(reverse("own_password")), "Подключить Telegram")

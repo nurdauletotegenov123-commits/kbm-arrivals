@@ -36,6 +36,14 @@ def _waiting_first(people):
     return sorted(people, key=key)
 
 
+def _date_changes():
+    """Люди с проживанием или питанием, кому недавно перенесли даты (сначала свежие)."""
+    since = timezone.now() - timedelta(days=settings.DATE_CHANGE_DAYS)
+    qs = (Visitor.objects.ready().filter(Q(needs_camp=True) | Q(needs_meals=True), dates_changed_at__gte=since)
+          .exclude(camp_status=C.CHECKED_OUT).select_related("request", "organization").order_by("-dates_changed_at"))
+    return [v for v in qs if v.date_change]
+
+
 @role_required(R.CAMP)
 def camp(request):
     today = timezone.localdate()
@@ -56,6 +64,7 @@ def camp(request):
         "living": living.count(),
         "no_shows": no_shows.count(),
         "tomorrow": base.filter(arrival_date=today + timedelta(days=1)).count(),
+        "changes": len(_date_changes()),
     }
 
     sections, days = [], []
@@ -66,6 +75,9 @@ def camp(request):
             | Q(arrival_date__gte=today - timedelta(days=settings.NO_SHOW_DAYS), arrival_date__lte=today + timedelta(days=30))
         ).exclude(camp_status=C.CHECKED_OUT, checked_out_at__date__lt=today)[:50]
         sections.append({"title": _("Найдено"), "items": list(found), "empty": _("Никого не найдено.")})
+    elif tab == "changes":
+        sections.append({"title": _("Заявители перенесли даты (за %(n)s дн.)") % {"n": settings.DATE_CHANGE_DAYS},
+                         "items": _date_changes(), "empty": _("Переносов нет.")})
     elif tab == "living":
         sections.append({"title": _("Сейчас проживают"), "items": list(living), "empty": _("Никто не проживает.")})
     elif tab == "upcoming":

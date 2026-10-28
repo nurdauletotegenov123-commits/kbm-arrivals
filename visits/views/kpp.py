@@ -11,7 +11,7 @@ from django.views.decorators.http import require_POST
 
 from accounts.decorators import role_required
 
-from .. import services
+from .. import bans, services
 from ..models import Request, Trip, Visitor
 from ..text import normalize_plate
 from .common import R, pop_action, redirect_back, remember_action
@@ -33,7 +33,7 @@ def _trips_today(today):
 def _visible_trips(qs):
     """Машина с грузом видна охране только по согласованной и не отменённой заявке."""
     return qs.filter(Q(request__isnull=True) | Q(request__approval=Request.Approval.APPROVED, request__is_cancelled=False)) \
-        .select_related("request")
+        .select_related("request").prefetch_related("files")
 
 
 @role_required(R.SECURITY)
@@ -88,6 +88,7 @@ def kpp(request):
         sections.append({"title": _("Ожидаются сегодня"), "items": list(expected),
                          "empty": _("На сегодня больше никого не ожидается.")})
 
+    bans.mark([v for s in sections for v in s["items"]], trips)
     return render(request, "visits/kpp.html", {
         "tab": tab, "q": q, "sections": sections, "trips": trips, "counts": counts, "today": today,
         "last_action": pop_action(request), "show_docs": request.user.can_see_documents,

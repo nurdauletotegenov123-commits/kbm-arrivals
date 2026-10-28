@@ -1,12 +1,14 @@
+import os
 import re
 
 from django import forms
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from .models import Organization, Request, Trip, Visitor
+from .models import EntryBan, Organization, Request, Trip, Visitor
 
 
 class DateInput(forms.DateInput):
@@ -116,20 +118,49 @@ class TripForm(forms.ModelForm):
         }
 
 
+CARGO_FILE_TYPES = (".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx", ".xls", ".xlsx")
+
+
+class MultipleFileInput(forms.ClearableFileInput):
+    allow_multiple_selected = True
+
+
+class MultipleFileField(forms.FileField):
+    """Несколько файлов в одном поле (рецепт из документации Django)."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("widget", MultipleFileInput())
+        super().__init__(*args, **kwargs)
+
+    def clean(self, data, initial=None):
+        single = super().clean
+        if isinstance(data, (list, tuple)):
+            return [single(d, initial) for d in data if d]
+        return [single(data, initial)] if data else []
+
+
 class CargoForm(forms.ModelForm):
     """Машина подрядчика с материалами. Заполняется в заявке, если стоит галочка."""
 
     has_cargo = forms.BooleanField(label=_("Завоз материалов или оборудования"), required=False)
-    REQUIRED = ("date", "vehicle_make", "vehicle_plate", "driver_name", "cargo")
+    files = MultipleFileField(
+        label=_("Документы"), required=False,
+        help_text=_("Договор, накладная, сертификаты: PDF, фото, Word, Excel, до %(mb)s МБ каждый.")
+        % {"mb": settings.CARGO_FILE_MAX_MB},
+        widget=MultipleFileInput(attrs={"accept": ",".join(CARGO_FILE_TYPES)}),
+    )
+    REQUIRED = ("contract_number", "date", "vehicle_make", "vehicle_plate", "driver_name", "cargo")
 
     class Meta:
         model = Trip
-        fields = ["date", "time", "vehicle_make", "vehicle_plate", "driver_name", "driver_phone", "cargo"]
+        fields = ["contract_number", "date", "time", "vehicle_make", "vehicle_plate", "driver_name", "driver_phone",
+                  "cargo"]
         labels = {"date": _("Дата завоза"), "time": _("Примерное время")}
         widgets = {
             "date": DateInput(),
             "time": TimeInput(),
             "cargo": forms.Textarea(attrs={"rows": 2, "placeholder": _("Например: трубы НКТ 73 мм — 120 шт., 2 т")}),
+            "contract_number": forms.TextInput(attrs={"placeholder": _("Например: № 245-КБМ/2026 от 01.09.2026")}),
             "vehicle_make": forms.TextInput(attrs={"placeholder": _("Например: КАМАЗ 65117")}),
             "vehicle_plate": forms.TextInput(attrs={"placeholder": "123ABC12"}),
             "driver_phone": forms.TextInput(attrs={"type": "tel", "placeholder": "+7 7__ ___ __ __"}),
@@ -141,6 +172,10 @@ class CargoForm(forms.ModelForm):
         self.fields["has_cargo"].initial = bool(self.instance.pk)
         for name in self.Meta.fields:
             self.fields[name].required = False
+        self.existing_files = list(self.instance.files.all()) if self.instance.pk else []
+        ids = {str(f.pk) for f in self.existing_files}
+        raw = self.data.getlist(self.add_prefix("delete_file")) if hasattr(self.data, "getlist") else []
+        self.delete_ids = [] if self.is_locked else [int(i) for i in raw if i in ids]
         if self.is_locked:  # машина уже на КПП
             for field in self.fields.values():
                 field.disabled = True
@@ -163,6 +198,14 @@ class CargoForm(forms.ModelForm):
         day = data.get("date")
         if day and not self.is_locked and "date" in self.changed_data and day < timezone.localdate():
             self.add_error("date", _("Дата завоза не может быть в прошлом."))
+        files = data.get("files") or []
+        for f in files:
+            if os.path.splitext(f.name)[1].lower() not in CARGO_FILE_TYPES:
+                self.add_error("files", _("«%(n)s»: можно PDF, JPG, PNG, Word или Excel.") % {"n": f.name})
+            elif f.size > settings.CARGO_FILE_MAX_MB * 1024 * 1024:
+                self.add_error("files", _("«%(n)s» больше %(mb)s МБ.") % {"n": f.name, "mb": settings.CARGO_FILE_MAX_MB})
+        if len(self.existing_files) - len(self.delete_ids) + len(files) > settings.CARGO_FILES_MAX:
+            self.add_error("files", _("Не больше %(n)s файлов к грузу.") % {"n": settings.CARGO_FILES_MAX})
         return data
 
     def _post_clean(self):
@@ -227,3 +270,14 @@ class PeriodForm(forms.Form):
             if (b - a).days > 366:
                 raise ValidationError(_("Период не больше года."))
         return data
+
+
+class BanForm(forms.ModelForm):
+    class Meta:
+        model = EntryBan
+        fields = ["full_name", "doc_number", "vehicle_plate", "reason"]
+        widgets = {
+            "reason": forms.Textarea(attrs={"rows": 2, "placeholder": _("Например: нарушение ТБ 12.10.2026, акт №45")}),
+            "vehicle_plate": forms.TextInput(attrs={"placeholder": "123ABC12"}),
+            "full_name": forms.TextInput(attrs={"placeholder": _("ФИО человека или «Машина ТОО …»")}),
+        }

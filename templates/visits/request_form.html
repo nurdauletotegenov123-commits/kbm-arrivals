@@ -6,7 +6,7 @@
   {% if not is_new %}<a class="btn" href="{% url 'request_detail' req.pk %}">{% translate "Назад" %}</a>{% endif %}
 </div>
 
-<form method="post" id="request-form" novalidate>
+<form method="post" id="request-form" enctype="multipart/form-data" novalidate>
   {% csrf_token %}
   {% include "includes/form_errors.html" %}
   {% if formset.non_form_errors %}<div class="form-errors">{{ formset.non_form_errors }}</div>{% endif %}
@@ -28,6 +28,7 @@
     <div class="small muted">{% translate "Если вы завозите на территорию материалы или оборудование на своей машине. Охрана увидит груз на КПП." %}</div>
     {% if cargo_form.is_locked %}<div class="warn-line">{% translate "Машина с грузом уже отмечена на КПП — изменить её нельзя." %}</div>{% endif %}
     <div class="cargo-fields grid-2{% if not cargo_form.has_cargo.value %} hidden{% endif %}" id="cargo-fields">
+      {% include "includes/field.html" with field=cargo_form.contract_number %}
       {% include "includes/field.html" with field=cargo_form.cargo %}
       {% include "includes/field.html" with field=cargo_form.date %}
       {% include "includes/field.html" with field=cargo_form.time %}
@@ -35,6 +36,17 @@
       {% include "includes/field.html" with field=cargo_form.vehicle_plate %}
       {% include "includes/field.html" with field=cargo_form.driver_name %}
       {% include "includes/field.html" with field=cargo_form.driver_phone %}
+      <div class="span-2">
+        {% if cargo_form.existing_files %}
+        <div class="field"><label>{% translate "Приложенные документы" %}</label>
+          <ul class="file-list">{% for f in cargo_form.existing_files %}
+            <li><a href="{% url 'cargo_file' f.pk %}" target="_blank" rel="noopener">📎 {{ f.name }}</a>
+              {% if not cargo_form.is_locked %}<label class="check small"><input type="checkbox" name="{{ cargo_form.prefix }}-delete_file" value="{{ f.pk }}"{% if f.pk in cargo_form.delete_ids %} checked{% endif %}> {% translate "удалить" %}</label>{% endif %}</li>
+          {% endfor %}</ul></div>
+        {% endif %}
+        {% include "includes/field.html" with field=cargo_form.files %}
+        {% if cargo_form.is_bound %}<div class="help">{% translate "Если вы выбирали новые файлы, выберите их ещё раз: после ошибки в форме браузер их не сохраняет." %}</div>{% endif %}
+      </div>
     </div>
   </div>
 

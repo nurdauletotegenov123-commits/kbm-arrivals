@@ -24,7 +24,7 @@
       {% for item in nav_items %}<a href="{{ item.url }}"{% if item.active %} class="active" aria-current="page"{% endif %}>{{ item.label }}</a>{% endfor %}
     </nav>
     <div class="userbox">
-      <a class="user-chip" href="{% url 'own_password' %}" title="{{ user.display_name }} · {{ role_label }} — {% translate 'сменить пароль' %}">
+      <a class="user-chip" href="{% url 'own_password' %}" title="{{ user.display_name }} · {{ role_label }} — {% translate 'пароль и уведомления в Telegram' %}">
         <span class="avatar" aria-hidden="true">{{ user.display_name|first|upper }}</span>
         <span class="who"><b>{{ user.display_name }}</b><small>{{ role_label }}</small></span>
       </a>

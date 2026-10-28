@@ -25,6 +25,20 @@ services:
         condition: service_healthy
     ports:
       - "${WEB_PORT:-8000}:8000"
+    volumes:
+      - media:/app/media  # документы на груз
+
+  # Telegram-бот уведомлений: нужен только исходящий доступ к api.telegram.org.
+  # Без TELEGRAM_BOT_TOKEN в .env просто ждёт настройки.
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+    entrypoint: ["python", "-u", "manage.py", "telegram_bot"]
+    depends_on:
+      - web
 
   # HTTPS — включается, когда будет домен: docker compose --profile https up -d
   caddy:
@@ -44,4 +58,5 @@ services:
 
 volumes:
   pgdata:
+  media:
   caddy_data:

@@ -10,7 +10,7 @@ RUN pip install -r requirements.txt
 
 COPY . .
 RUN DJANGO_DEBUG=0 DJANGO_SECRET_KEY=build python manage.py collectstatic --noinput \
-    && chmod +x docker/entrypoint.sh \
+    && chmod +x docker/entrypoint.sh && mkdir -p /app/media \
     && useradd --create-home app && chown -R app /app
 USER app
 

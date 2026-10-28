@@ -26,12 +26,12 @@
 
 <h2>{% translate "Пассажиры" %} ({{ people|length }})</h2>
 {% if people %}
-<div class="table-wrap"><table>
+<div class="table-wrap"><table class="stack">
   <thead><tr><th>{% translate "ФИО" %}</th><th>{% translate "Заявка" %}</th><th>{% translate "КПП" %}</th><th></th></tr></thead>
   <tbody>{% for v in people %}<tr>
     <td><b>{{ v.full_name }}</b><div class="small muted">{{ v.organization }}</div></td>
-    <td class="small">№{{ v.request.number }} · {{ v.request.purpose }}</td>
-    <td>{% include "visits/_status.html" %}</td>
+    <td data-label="{% translate 'Заявка' %}" class="small">№{{ v.request.number }} · {{ v.request.purpose }}</td>
+    <td data-label="{% translate 'КПП' %}">{% include "visits/_status.html" %}</td>
     <td class="right">
       <form method="post" action="{% url 'trip_remove' trip.pk v.pk %}">{% csrf_token %}
         <button class="btn-link" type="submit">{% translate "Убрать из машины" %}</button>

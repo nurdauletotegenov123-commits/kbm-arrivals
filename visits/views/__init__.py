@@ -1,10 +1,11 @@
-from .approvals import approval_list, request_approve, request_reject  # noqa: F401
+from .approvals import approval_list, request_approve, request_reject, request_revoke  # noqa: F401
+from .monitor import ban_lift, ban_list, monitor, people_search  # noqa: F401
 from .camp import camp, camp_action  # noqa: F401
 from .canteen import canteen  # noqa: F401
 from .dispatch import dispatch, dispatch_assign, trip_delete, trip_edit, trip_remove  # noqa: F401
 from .kpp import kpp, kpp_action, kpp_trip_action  # noqa: F401
 from .reports import reports  # noqa: F401
 from .requests import (  # noqa: F401
-    dashboard, import_parse, import_template, request_cancel, request_create, request_detail, request_edit,
+    cargo_file, dashboard, import_parse, import_template, request_cancel, request_create, request_detail, request_edit,
     request_list,
 )

@@ -20,6 +20,12 @@
   {% elif req.is_approved and req.approved_by %}<div class="approval-line approved">{% blocktranslate with who=req.approved_by when=req.approved_at|date:"d.m.Y H:i" %}Согласована {{ when }}, {{ who }}{% endblocktranslate %}</div>{% endif %}
 {% endif %}
 
+{% if has_ban %}
+<div class="alert-box"><b>⛔ {% translate "В заявке есть люди или машина из списка запрета въезда" %}</b>
+  <ul>{% for v in visitors %}{% if v.ban and v.status == "expected" %}<li>{{ v.full_name }} — {{ v.ban.reason }}</li>{% endif %}{% endfor %}
+  {% if cargo.ban %}<li><span class="plate">{{ cargo.vehicle_plate }}</span> — {{ cargo.ban.reason }}</li>{% endif %}</ul></div>
+{% endif %}
+
 {% if can_decide %}
 <div class="card decision">
   <h2>{% translate "Решение по заявке" %}</h2>
@@ -28,7 +34,7 @@
     <div class="strike-list">
       {% for v in visitors %}{% if v.status == "expected" %}
       <input type="hidden" name="shown" value="{{ v.pk }}">
-      <label class="check"><input type="checkbox" name="admit" value="{{ v.pk }}" checked> {{ v.full_name }} <span class="muted small">· {{ v.organization }} · {{ v.arrival_date|date:"d.m" }}–{{ v.departure_date|date:"d.m" }}</span></label>
+      <label class="check{% if v.ban %} banned{% endif %}"><input type="checkbox" name="admit" value="{{ v.pk }}"{% if not v.ban %} checked{% endif %}> {% if v.ban %}⛔ {% endif %}{{ v.full_name }} <span class="muted small">· {{ v.organization }} · {{ v.arrival_date|date:"d.m" }}–{{ v.departure_date|date:"d.m" }}</span></label>
       {% endif %}{% endfor %}
     </div>
   </form>
@@ -43,6 +49,17 @@
     </details>
   </div>
 </div>
+{% endif %}
+
+{% if can_revoke %}
+<details class="card revoke">
+  <summary class="btn btn-sm">{% translate "Отозвать согласование" %}</summary>
+  <form method="post" action="{% url 'request_revoke' req.pk %}" style="margin-top:.8rem">{% csrf_token %}
+    <p class="small muted">{% translate "Те, кто ещё не приехал, пропадут с КПП, у кэмпа и диспетчера и будут сняты с машин. Кто уже на территории — останется виден охране. Заявитель получит причину и сможет исправить заявку." %}</p>
+    {% include "includes/field.html" with field=reject_form.reason %}
+    <button class="btn btn-red" type="submit">{% translate "Отозвать" %}</button>
+  </form>
+</details>
 {% endif %}
 
 <div class="card">
@@ -65,7 +82,9 @@
       </div>
       <div class="right">{% with t=cargo %}{% include "visits/_trip_status.html" %}{% endwith %}</div>
     </div>
+    <div class="person-meta"><span><span class="k">{% translate "Договор" %}:</span> <b>{{ cargo.contract_number|default:"—" }}</b></span></div>
     <div class="cargo-text">{{ cargo.cargo }}</div>
+    {% include "visits/_cargo_files.html" %}
     <div class="person-meta"><span><span class="k">{% translate "Водитель" %}:</span> {{ cargo.driver_name }}{% if cargo.driver_phone %}, <a href="tel:{{ cargo.driver_phone }}">{{ cargo.driver_phone }}</a>{% endif %}</span></div>
   </article>
 </div>
@@ -93,22 +112,24 @@
 {% endif %}{% endwith %}
 
 <h2>{% translate "Люди" %} ({{ visitors|length }})</h2>
-<div class="table-wrap"><table>
+<div class="table-wrap"><table class="stack">
   <thead><tr><th>{% translate "ФИО" %}</th><th>{% translate "Документ" %}</th><th>{% translate "Даты" %}</th><th>{% translate "Транспорт" %}</th><th>{% translate "Услуги" %}</th><th>{% translate "КПП" %}</th><th>{% translate "Кэмп" %}</th></tr></thead>
   <tbody>
   {% for v in visitors %}
     <tr class="{{ v.state_class }}">
-      <td><b>{{ v.full_name }}</b><div class="small muted">{{ v.organization }}{% if v.position %} · {{ v.position }}{% endif %}</div></td>
-      <td class="small">{{ v.get_doc_type_display }}<br>{{ v.doc_number }}</td>
-      <td class="nowrap">{{ v.arrival_date|date:"d.m.Y" }}{% if v.arrival_time %} {{ v.arrival_time|time:"H:i" }}{% endif %}<br>→ {{ v.departure_date|date:"d.m.Y" }}</td>
-      <td class="small">{% if v.needs_transport %}
+      <td><b>{{ v.full_name }}</b><div class="small muted">{{ v.organization }}{% if v.position %} · {{ v.position }}{% endif %}</div>
+        {% if v.ban %}<div class="small ban-text">⛔ {% translate "Запрет въезда" %}: {{ v.ban.reason }}</div>
+        {% elif is_chief and v.doc_number %}<a class="small" href="{% url 'ban_list' %}?full_name={{ v.full_name|urlencode }}&amp;doc_number={{ v.doc_number|urlencode }}">{% translate "запретить въезд" %}</a>{% endif %}</td>
+      <td data-label="{% translate 'Документ' %}" class="small">{{ v.get_doc_type_display }}<br>{{ v.doc_number }}</td>
+      <td data-label="{% translate 'Даты' %}" class="nowrap">{{ v.arrival_date|date:"d.m.Y" }}{% if v.arrival_time %} {{ v.arrival_time|time:"H:i" }}{% endif %}<br>→ {{ v.departure_date|date:"d.m.Y" }}{% include "visits/_date_change.html" %}</td>
+      <td data-label="{% translate 'Транспорт' %}" class="small">{% if v.needs_transport %}
         <div>{% translate "Привоз" %}: {% if v.arrival_trip %}<span class="plate">{{ v.arrival_trip.vehicle_plate }}</span> {{ v.arrival_trip.vehicle_make }}{% else %}<span class="badge badge-overdue">{% translate "ждёт диспетчера" %}</span>{% endif %}</div>
         <div>{% translate "Вывоз" %}: {% if v.departure_trip %}<span class="plate">{{ v.departure_trip.vehicle_plate }}</span> {{ v.departure_trip.vehicle_make }}{% else %}<span class="badge badge-overdue">{% translate "ждёт диспетчера" %}</span>{% endif %}</div>
       {% elif v.vehicle_plate %}<span class="plate">{{ v.vehicle_plate }}</span><br>{{ v.vehicle_make }}{% else %}—{% endif %}</td>
-      <td>{% include "visits/_flags.html" %}</td>
-      <td>{% include "visits/_status.html" %}
+      <td data-label="{% translate 'Услуги' %}">{% include "visits/_flags.html" %}</td>
+      <td data-label="{% translate 'КПП' %}">{% include "visits/_status.html" %}
         {% if v.arrived_at %}<div class="small muted">{{ v.arrived_at|date:"d.m H:i" }}{% if v.departed_at %} → {{ v.departed_at|date:"d.m H:i" }}{% endif %}</div>{% endif %}</td>
-      <td>{% if v.needs_camp and not v.is_cancelled %}<span class="badge badge-{{ v.camp_status }}">{{ v.get_camp_status_display }}</span>{% if v.room_display %}<div class="small">{{ v.room_display }}</div>{% endif %}{% else %}—{% endif %}</td>
+      <td data-label="{% translate 'Кэмп' %}">{% if v.needs_camp and not v.is_cancelled %}<span class="badge badge-{{ v.camp_status }}">{{ v.get_camp_status_display }}</span>{% if v.room_display %}<div class="small">{{ v.room_display }}</div>{% endif %}{% else %}—{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>

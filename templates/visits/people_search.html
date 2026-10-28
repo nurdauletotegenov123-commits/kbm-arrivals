@@ -1,0 +1,36 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Проверка" %}{% endblock %}
+{% block content %}
+<div class="page-head"><h1>{% translate "Проверка человека или машины" %}</h1></div>
+<form class="searchbar" method="get">
+  <input type="search" name="q" value="{{ q }}" autofocus placeholder="{% translate 'ФИО, ИИН, номер документа или госномер' %}">
+  <button class="btn" type="submit">{% translate "Найти" %}</button>
+</form>
+{% if not q %}<div class="empty">{% translate "Введите ФИО, ИИН или госномер — покажем все визиты за всё время и запреты въезда." %}</div>
+{% else %}
+  {% for b in found_bans %}
+  <div class="alert-box{% if not b.is_active %} lifted{% endif %}"><b>{% if b.is_active %}⛔ {% translate "Запрет въезда" %}{% else %}{% translate "Запрет снят" %} {{ b.lifted_at|date:"d.m.Y" }}{% endif %}:</b>
+    {{ b.full_name }}{% if b.doc_number %} · {{ b.doc_number }}{% endif %}{% if b.vehicle_plate %} · <span class="plate">{{ b.vehicle_plate }}</span>{% endif %}
+    — {{ b.reason }} <span class="muted small">({{ b.created_by|default:"" }}, {{ b.created_at|date:"d.m.Y" }})</span></div>
+  {% endfor %}
+  <h2>{% translate "Визиты" %}{% if page %} ({{ page.paginator.count }}){% endif %}</h2>
+  {% if page.object_list %}
+  <div class="table-wrap"><table class="stack">
+    <thead><tr><th>{% translate "ФИО" %}</th><th>{% translate "Документ" %}</th><th>{% translate "Даты" %}</th><th>{% translate "Статус" %}</th><th>{% translate "КПП" %}</th><th>{% translate "Заявка" %}</th><th></th></tr></thead>
+    <tbody>{% for v in page.object_list %}
+      <tr class="{% if v.ban %}row-ban{% endif %}">
+        <td><b>{{ v.full_name }}</b><div class="small muted">{{ v.organization }}{% if v.position %} · {{ v.position }}{% endif %}</div>
+          {% if v.ban %}<div class="small ban-text">⛔ {{ v.ban.reason }}</div>{% endif %}</td>
+        <td data-label="{% translate 'Документ' %}" class="small">{{ v.get_doc_type_display }}<br>{{ v.doc_number }}{% if v.vehicle_plate %}<br><span class="plate">{{ v.vehicle_plate }}</span>{% endif %}</td>
+        <td data-label="{% translate 'Даты' %}" class="nowrap">{{ v.arrival_date|date:"d.m.Y" }}<br>→ {{ v.departure_date|date:"d.m.Y" }}</td>
+        <td data-label="{% translate 'Статус' %}">{% include "visits/_status.html" %}{% if not v.request.is_approved and not v.is_cancelled %}<div><span class="badge badge-{{ v.request.approval }}">{{ v.request.get_approval_display }}</span></div>{% endif %}</td>
+        <td data-label="{% translate 'КПП' %}" class="small">{% if v.arrived_at %}{{ v.arrived_at|date:"d.m H:i" }}{% if v.arrived_checkpoint %} · {{ v.arrived_checkpoint }}{% endif %}{% if v.arrived_by %}<br><span class="muted">{{ v.arrived_by }}</span>{% endif %}{% endif %}
+          {% if v.departed_at %}<br>→ {{ v.departed_at|date:"d.m H:i" }}{% endif %}</td>
+        <td data-label="{% translate 'Заявка' %}" class="small"><a href="{% url 'request_detail' v.request_id %}">№{{ v.request.number }}</a><div class="muted">{{ v.request.purpose|truncatechars:40 }}</div></td>
+        <td>{% if not v.ban %}<a class="btn btn-sm" href="{% url 'ban_list' %}?full_name={{ v.full_name|urlencode }}&amp;doc_number={{ v.doc_number|urlencode }}">{% translate "Запретить въезд" %}</a>{% endif %}</td>
+      </tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "includes/pager.html" %}
+  {% else %}<div class="empty">{% translate "Визитов не найдено." %}</div>{% endif %}
+{% endif %}
+{% endblock %}

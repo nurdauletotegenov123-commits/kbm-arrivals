@@ -1,15 +1,18 @@
-"""Уведомления службам на почту о новых/изменённых/отменённых заявках.
+"""Уведомления о заявках и транспорте: на почту и в Telegram.
 
-ИИН и номера документов в письма не попадают. Если EMAIL_HOST не задан,
-письма печатаются в консоль контейнера.
+Каждому получателю — одно сообщение: письмо, если указан e-mail и стоит галочка «получать уведомления»,
+и сообщение в Telegram, если он подключил бота. ИИН и номера документов в уведомления не попадают.
+Если EMAIL_HOST не задан, письма печатаются в консоль контейнера.
 """
 import logging
 
 from django.conf import settings
 from django.core.mail import send_mass_mail
 from django.db import transaction
+from django.db.models import Q
 from django.urls import reverse
 
+from accounts import telegram
 from accounts.models import User
 
 logger = logging.getLogger(__name__)
@@ -21,6 +24,7 @@ EVENTS = {
     "resubmit": "Исправлена и снова отправлена заявка",
     "approve": "Согласована заявка",
     "reject": "Отклонена заявка",
+    "revoke": "Отозвано согласование заявки",
 }
 
 
@@ -41,10 +45,12 @@ def _line(v):
     return " · ".join(parts)
 
 
-def notify_request(req, event):
+def notify_request(req, event, report=None):
+    """`report` — для изменений: {pk: {"name", "lines": [(текст, {роли})]}} из формы заявки.
+    Тогда каждая служба получает только касающиеся её строки «было → стало»."""
     if not settings.NOTIFICATIONS_ENABLED:
         return
-    transaction.on_commit(lambda: _send(req.pk, event))
+    transaction.on_commit(lambda: _send(req.pk, event, report))
 
 
 def _recipient_roles(req, event, visitors):
@@ -53,7 +59,9 @@ def _recipient_roles(req, event, visitors):
     R = User.Role
     if req.is_pending:
         return [R.CHIEF] if event in ("create", "resubmit") else []
-    if not req.is_approved or event == "reject":
+    if event == "revoke":
+        pass  # службам надо знать, что людей больше не ждут
+    elif not req.is_approved or event == "reject":
         return []
     roles = [R.SECURITY]
     if any(v.needs_camp or v.needs_meals for v in visitors):
@@ -63,9 +71,32 @@ def _recipient_roles(req, event, visitors):
     return roles
 
 
-def _author_message(req):
+def _reachable(qs):
+    """Пользователи, которым есть куда написать."""
+    return qs.filter(is_active=True).filter(Q(notify_by_email=True) & ~Q(email="") | ~Q(telegram_chat_id=""))
+
+
+def _can_reach(user):
+    return user.is_active and ((user.notify_by_email and user.email) or user.telegram_chat_id)
+
+
+def _deliver(notes):
+    """notes: [(user, тема, текст)]. Текст начинается с заголовка, поэтому в Telegram уходит только он."""
+    emails = [(f"[КБМ Прибытие] {subject}", body, settings.DEFAULT_FROM_EMAIL, [user.email])
+              for user, subject, body in notes if user.notify_by_email and user.email]
+    if emails:
+        try:
+            send_mass_mail(emails, fail_silently=False)
+        except Exception:  # почта не должна ломать работу
+            logger.exception("Не удалось отправить письма")
+    for user, _subject, body in notes:
+        if user.telegram_chat_id:
+            telegram.send_message(user.telegram_chat_id, body)
+
+
+def _author_message(req, event):
     author = req.author
-    if not (author.is_active and author.notify_by_email and author.email):
+    if not _can_reach(author):
         return []
     if req.is_approved:
         lines = [f"Заявка №{req.number} ({req.purpose}) согласована начальником штаба безопасности."]
@@ -73,22 +104,86 @@ def _author_message(req):
         if struck:
             lines.append("Не допущены: " + ", ".join(struck))
     else:
-        lines = [f"Заявка №{req.number} ({req.purpose}) отклонена.", f"Причина: {req.reject_reason}", "",
+        what = "согласование отозвано" if event == "revoke" else "отклонена"
+        lines = [f"Заявка №{req.number} ({req.purpose}): {what}.", f"Причина: {req.reject_reason}", "",
                  "Исправьте заявку и сохраните её — она снова уйдёт на согласование."]
     lines += ["", f"Открыть: {settings.SITE_URL.rstrip('/')}{reverse('request_detail', args=[req.pk])}"]
-    subject = f"[КБМ Прибытие] Заявка №{req.number} {'согласована' if req.is_approved else 'отклонена'}"
-    return [(subject, "\n".join(lines), settings.DEFAULT_FROM_EMAIL, [author.email])]
+    subject = f"Заявка №{req.number}: " + ("согласована" if req.is_approved else
+                                           "согласование отозвано" if event == "revoke" else "отклонена")
+    return [(author, subject, "\n".join(lines))]
 
 
-def _send(request_pk, event):
+def _cargo_lines(req, role):
+    """Груз нужен начальнику (согласовать) и охране (пропустить машину)."""
+    cargo = req.cargo_trip
+    if not cargo or role not in (User.Role.CHIEF, User.Role.SECURITY):
+        return []
+    files = cargo.files.count()
+    return ["", f"Груз: {cargo.cargo}", f"Договор: {cargo.contract_number or '—'}",
+            f"Машина: {cargo.vehicle_make} {cargo.vehicle_plate}, {cargo.date:%d.%m.%Y}"
+            + (f", документов: {files}" if files else "")]
+
+
+def _title(event, role):
+    """Заголовок под задачу получателя: начальнику — согласовать, диспетчеру — дать машину."""
+    R = User.Role
+    if role == R.CHIEF and event == "create":
+        return "Новая заявка на согласование"
+    if event == "approve":
+        return "Назначьте машину: заявка" if role == R.DISPATCHER else EVENTS["create"]
+    return EVENTS[event]
+
+
+def _changes_for(report, role):
+    """Строки изменений, важные для роли: ["• Иванов Иван: выезд 30.10 → 02.11; питание снято", ...]."""
+    out = []
+    for item in report.values():
+        texts = [text for text, roles in item["lines"] if role in roles]
+        if texts:
+            out.append(f"• {item['name']}: " + "; ".join(texts))
+    return out
+
+
+def _send_changes(req, report):
+    """Изменения согласованной заявки: каждой службе — только то, что её касается."""
+    R = User.Role
+    links = {R.SECURITY: reverse("kpp"), R.CAMP: reverse("camp"), R.DISPATCHER: reverse("dispatch")}
+    notes = []
+    for user in _reachable(User.objects.filter(role__in=list(links))):
+        lines = _changes_for(report, user.role) if report else []
+        if not report and user.role == R.SECURITY:
+            lines = ["• изменены данные заявки (цель, ответственный или груз)"]
+        if not lines:
+            continue
+        dates = any("заезд" in l or "выезд" in l for l in lines)
+        title = "Перенос дат" if dates else EVENTS["update"]
+        body = "\n".join([
+            f"{title}: заявка №{req.number}",
+            f"Цель визита: {req.purpose}",
+            f"Ответственный: {req.contact_name}, {req.contact_phone}",
+            "",
+            "Что изменилось:",
+            *lines,
+            "",
+            f"Открыть: {settings.SITE_URL.rstrip('/')}{links[user.role]}",
+        ])
+        notes.append((user, f"{title}: заявка №{req.number} ({len(lines)} чел.)", body))
+    _deliver(notes)
+
+
+def _send(request_pk, event, report=None):
     from .models import Request
 
     try:
         req = Request.objects.get(pk=request_pk)
+        if event == "update" and report is not None:
+            if req.is_approved and not req.is_cancelled:
+                _send_changes(req, report)
+            return
         visitors = [v for v in req.visitors.select_related("organization") if v.status != v.Status.REJECTED]
-        messages = _author_message(req) if event in ("approve", "reject") else []
+        notes = _author_message(req, event) if event in ("approve", "reject", "revoke") else []
         roles = _recipient_roles(req, event, visitors)
-        users = User.objects.filter(is_active=True, notify_by_email=True, role__in=roles).exclude(email="") if roles else []
+        users = _reachable(User.objects.filter(role__in=roles)) if roles else []
         R = User.Role
         links = {
             R.CHIEF: reverse("request_detail", args=[req.pk]),
@@ -96,8 +191,8 @@ def _send(request_pk, event):
             R.CAMP: reverse("camp"),
             R.DISPATCHER: reverse("dispatch"),
         }
-        title = EVENTS["create"] if event == "approve" else EVENTS[event]
         for user in users:
+            title = _title(event, user.role)
             shown = visitors
             if user.role == R.CAMP:
                 shown = [v for v in visitors if v.needs_camp or v.needs_meals]
@@ -110,15 +205,15 @@ def _send(request_pk, event):
                     f"Ответственный: {req.contact_name}, {req.contact_phone}",
                     "",
                     *[f"• {_line(v)}" for v in shown],
+                    *_cargo_lines(req, user.role),
                     "",
                     f"Открыть: {settings.SITE_URL.rstrip('/')}{links[user.role]}",
                 ]
             )
-            subject = f"[КБМ Прибытие] {title} №{req.number} ({len(shown)} чел.)"
-            messages.append((subject, body, settings.DEFAULT_FROM_EMAIL, [user.email]))
-        if messages:
-            send_mass_mail(messages, fail_silently=False)
-    except Exception:  # почта не должна ломать работу с заявками
+            subject = f"{title} №{req.number} ({len(shown)} чел.)"
+            notes.append((user, subject, body))
+        _deliver(notes)
+    except Exception:  # уведомления не должны ломать работу с заявками
         logger.exception("Не удалось отправить уведомление по заявке %s", request_pk)
 
 
@@ -139,18 +234,18 @@ def trip_text(trip):
 
 
 def notify_trip(trip, people, event):
-    """Письмо авторам заявок, чьих людей посадили в машину (или изменили/отменили её).
+    """Уведомление авторам заявок, чьих людей посадили в машину (или изменили/отменили её).
     Текст собирается сразу — после удаления рейса его уже не прочитать."""
     if not settings.NOTIFICATIONS_ENABLED or not people:
         return
     by_request = {}
     for v in people:
         by_request.setdefault(v.request_id, []).append(v)
-    messages = []
+    notes = []
     for request_pk, group in by_request.items():
         req = group[0].request
         author = req.author
-        if not (author.is_active and author.notify_by_email and author.email):
+        if not _can_reach(author):
             continue
         body = "\n".join([
             f"{TRIP_EVENTS[event]} по заявке №{req.number} ({req.purpose})",
@@ -161,14 +256,7 @@ def notify_trip(trip, people, event):
             "",
             f"Открыть: {settings.SITE_URL.rstrip('/')}{reverse('request_detail', args=[request_pk])}",
         ])
-        subject = f"[КБМ Прибытие] {TRIP_EVENTS[event]}: заявка №{req.number}"
-        messages.append((subject, body, settings.DEFAULT_FROM_EMAIL, [author.email]))
-    if messages:
-        transaction.on_commit(lambda: _send_trip(messages))
-
-
-def _send_trip(messages):
-    try:
-        send_mass_mail(messages, fail_silently=False)
-    except Exception:  # почта не должна ломать работу диспетчера
-        logger.exception("Не удалось отправить письмо о транспорте")
+        subject = f"{TRIP_EVENTS[event]}: заявка №{req.number}"
+        notes.append((author, subject, body))
+    if notes:
+        transaction.on_commit(lambda: _deliver(notes))

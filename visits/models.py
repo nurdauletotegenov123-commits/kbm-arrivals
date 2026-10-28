@@ -1,8 +1,12 @@
+import os
+import uuid
 from datetime import time as datetime_time, timedelta
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -156,6 +160,7 @@ class Trip(models.Model):
         help_text=_("Только для завоза груза."),
     )
     cargo = models.TextField(_("что везут"), blank=True, help_text=_("Материалы, оборудование, количество."))
+    contract_number = models.CharField(_("номер договора"), max_length=100, blank=True)
     date = models.DateField(_("дата"), db_index=True)
     time = models.TimeField(_("время подачи"), null=True, blank=True)
     pickup_place = models.CharField(
@@ -245,10 +250,12 @@ class VisitorQuerySet(models.QuerySet):
 
     def ready(self):
         """Видны охране и кэмпу: заявка согласована, и если нужен транспорт — диспетчер уже назначил
-        машину на привоз. Кто уже прошёл КПП, виден в любом случае."""
-        return self.approved().filter(
-            models.Q(needs_transport=False) | models.Q(arrival_trip__isnull=False) | ~models.Q(status=Visitor.Status.EXPECTED)
+        машину на привоз. Кто уже прошёл КПП, виден в любом случае (даже если согласование потом отозвали)."""
+        S = Visitor.Status
+        waiting = models.Q(request__approval=Request.Approval.APPROVED) & (
+            models.Q(needs_transport=False) | models.Q(arrival_trip__isnull=False)
         )
+        return self.active().filter(waiting | models.Q(status__in=[S.ARRIVED, S.DEPARTED]))
 
     def with_camp(self):
         return self.ready().filter(needs_camp=True)
@@ -360,6 +367,12 @@ class Visitor(models.Model):
     checked_in_at = models.DateTimeField(_("время заселения"), null=True, blank=True)
     checked_out_at = models.DateTimeField(_("время выселения"), null=True, blank=True)
 
+    # Заявитель перенёс даты уже согласованной заявки: что было до переноса и когда.
+    # Несколько дней это подсвечивается у КПП, кэмпа и диспетчера.
+    prev_arrival_date = models.DateField(_("прежняя дата прибытия"), null=True, blank=True, editable=False)
+    prev_departure_date = models.DateField(_("прежняя дата выезда"), null=True, blank=True, editable=False)
+    dates_changed_at = models.DateTimeField(_("даты изменены"), null=True, blank=True, editable=False)
+
     # Строка для поиска без учёта регистра (SQLite не умеет icontains для кириллицы).
     search_index = models.CharField(max_length=500, blank=True, editable=False, db_index=True)
 
@@ -464,6 +477,31 @@ class Visitor(models.Model):
         return f"st-{self.status}"
 
     @property
+    def date_change(self):
+        """Недавний перенос дат: {"arrival": (было, стало), "departure": (было, стало)} или None."""
+        if not self.dates_changed_at:
+            return None
+        if timezone.now() - self.dates_changed_at > timedelta(days=settings.DATE_CHANGE_DAYS):
+            return None
+        change = {}
+        if self.prev_arrival_date and self.prev_arrival_date != self.arrival_date:
+            change["arrival"] = (self.prev_arrival_date, self.arrival_date)
+        if self.prev_departure_date and self.prev_departure_date != self.departure_date:
+            change["departure"] = (self.prev_departure_date, self.departure_date)
+        return change or None
+
+    def record_date_change(self, old):
+        """Запомнить перенос дат относительно `old` (копии до правки). True, если даты изменились."""
+        changed = False
+        if old.arrival_date != self.arrival_date:
+            self.prev_arrival_date, changed = old.arrival_date, True
+        if old.departure_date != self.departure_date:
+            self.prev_departure_date, changed = old.departure_date, True
+        if changed:
+            self.dates_changed_at = timezone.now()
+        return changed
+
+    @property
     def nights(self):
         return (self.departure_date - self.arrival_date).days
 
@@ -497,3 +535,77 @@ class Visitor(models.Model):
         if self.status == self.Status.DEPARTED and self.departed_at:
             return timezone.localtime(self.departed_at).date() >= day
         return True
+
+
+def _cargo_upload_to(instance, filename):
+    """Случайное имя на диске: по ссылке не угадать. Исходное имя хранится в `name`."""
+    ext = os.path.splitext(filename)[1].lower()
+    return f"cargo/{timezone.now():%Y/%m}/{uuid.uuid4().hex}{ext}"
+
+
+class CargoFile(models.Model):
+    """Документ к грузу: договор, накладная, сертификат. Видят автор заявки, начальник штаба,
+    охрана (после согласования) и администратор."""
+
+    trip = models.ForeignKey(Trip, verbose_name=_("груз"), on_delete=models.CASCADE, related_name="files")
+    file = models.FileField(_("файл"), upload_to=_cargo_upload_to)
+    name = models.CharField(_("имя файла"), max_length=200)
+    size = models.PositiveIntegerField(_("размер"), default=0)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, verbose_name=_("загрузил"), null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    uploaded_at = models.DateTimeField(_("загружен"), auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("документ на груз")
+        verbose_name_plural = _("документы на груз")
+        ordering = ["uploaded_at", "pk"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def is_image(self):
+        return os.path.splitext(self.name)[1].lower() in (".jpg", ".jpeg", ".png")
+
+
+@receiver(post_delete, sender=CargoFile)
+def _remove_cargo_file(sender, instance, **kwargs):
+    instance.file.delete(save=False)
+
+
+class EntryBan(models.Model):
+    """Запрет въезда: ведёт начальник штаба безопасности. Совпадение ищется по документу/ИИН
+    и по госномеру. Заявитель запрет и причину не видит."""
+
+    full_name = models.CharField(_("ФИО / описание"), max_length=200)
+    doc_number = models.CharField(_("ИИН / номер документа"), max_length=50, blank=True, db_index=True)
+    vehicle_plate = models.CharField(_("госномер"), max_length=20, blank=True, db_index=True)
+    reason = models.TextField(_("причина"))
+    is_active = models.BooleanField(_("действует"), default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, verbose_name=_("кто добавил"), null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(_("добавлен"), auto_now_add=True)
+    lifted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, verbose_name=_("кто снял"), null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    lifted_at = models.DateTimeField(_("снят"), null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("запрет въезда")
+        verbose_name_plural = _("запреты въезда")
+        ordering = ["-is_active", "-created_at"]
+
+    def __str__(self):
+        return self.full_name
+
+    def save(self, *args, **kwargs):
+        self.doc_number = (self.doc_number or "").replace(" ", "").upper()
+        self.vehicle_plate = normalize_plate(self.vehicle_plate)
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        if not (self.doc_number or "").strip() and not (self.vehicle_plate or "").strip():
+            raise ValidationError(_("Укажите ИИН/документ или госномер — по ним КПП и согласование найдут совпадение."))

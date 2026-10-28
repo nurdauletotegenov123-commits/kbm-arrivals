@@ -23,6 +23,8 @@
     <span class="muted">№{{ v.request.number }}</span>
   </div>
   {% if v.request.comment %}<div class="small muted">💬 {{ v.request.comment }}</div>{% endif %}
+  {% include "visits/_date_change.html" %}
+  {% if v.ban %}<div class="alert-line">⛔ {% translate "Запрет въезда" %}: {{ v.ban.reason }}</div>{% endif %}
   {% if v.is_no_show %}<div class="alert-line">{% blocktranslate with d=v.arrival_date|date:"d.m.Y" %}Ожидался {{ d }} — не прибыл{% endblocktranslate %}</div>{% endif %}
   {% if v.is_early %}<div class="warn-line">{% blocktranslate with d=v.arrival_date|date:"d.m.Y" %}Ожидается {{ d }} — раньше срока{% endblocktranslate %}</div>{% endif %}
   {% if v.is_overdue %}<div class="warn-line">{% blocktranslate with d=v.departure_date|date:"d.m.Y" %}Выезд был запланирован на {{ d }}{% endblocktranslate %}</div>{% endif %}
@@ -34,7 +36,7 @@
   {% endif %}
   <div class="person-actions">
     {% if v.status == "expected" %}
-      <form method="post" action="{% url 'kpp_action' v.pk 'arrive' %}">{% csrf_token %}
+      <form method="post" action="{% url 'kpp_action' v.pk 'arrive' %}"{% if v.ban %} onsubmit="return confirm('{% translate "Человек в списке запрета въезда. Всё равно отметить «Прибыл»?" %}')"{% endif %}>{% csrf_token %}
         <input type="hidden" name="next" value="{{ request.get_full_path }}">
         <button class="btn btn-green btn-big" type="submit">✓ {% translate "Прибыл" %}</button>
       </form>

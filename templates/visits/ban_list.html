@@ -1,0 +1,42 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Запрет въезда" %}{% endblock %}
+{% block content %}
+<div class="page-head"><h1>{% translate "Запрет въезда" %}</h1></div>
+<p class="muted small">{% translate "Совпадение ищется по ИИН/номеру документа и по госномеру. При согласовании такой человек подсвечен красным и не отмечен к допуску, на КПП — красное предупреждение. Заявитель запрет и причину не видит." %}</p>
+
+<details class="card" {% if open_form %}open{% endif %}>
+  <summary class="btn btn-primary">+ {% translate "Добавить запрет" %}</summary>
+  <form method="post" style="margin-top:1rem">{% csrf_token %}
+    {% include "includes/form_errors.html" %}
+    <div class="grid-2">
+      {% include "includes/field.html" with field=form.full_name %}
+      {% include "includes/field.html" with field=form.doc_number %}
+      {% include "includes/field.html" with field=form.vehicle_plate %}
+      {% include "includes/field.html" with field=form.reason %}
+    </div>
+    <button class="btn btn-red" type="submit">{% translate "Запретить въезд" %}</button>
+  </form>
+</details>
+
+<nav class="tabs">
+  <a href="?show=active" class="{% if show != 'all' %}active{% endif %}">{% translate "Действующие" %}</a>
+  <a href="?show=all" class="{% if show == 'all' %}active{% endif %}">{% translate "Все, включая снятые" %}</a>
+</nav>
+{% if page.object_list %}
+<div class="table-wrap"><table class="stack">
+  <thead><tr><th>{% translate "Кто / что" %}</th><th>{% translate "ИИН / документ" %}</th><th>{% translate "Госномер" %}</th><th>{% translate "Причина" %}</th><th>{% translate "Добавил" %}</th><th></th></tr></thead>
+  <tbody>{% for b in page.object_list %}
+    <tr class="{% if not b.is_active %}st-cancelled{% endif %}">
+      <td><b>{{ b.full_name }}</b></td>
+      <td data-label="{% translate 'ИИН / документ' %}">{{ b.doc_number|default:"—" }}</td>
+      <td data-label="{% translate 'Госномер' %}">{% if b.vehicle_plate %}<span class="plate">{{ b.vehicle_plate }}</span>{% else %}—{% endif %}</td>
+      <td data-label="{% translate 'Причина' %}" class="small">{{ b.reason|linebreaksbr }}</td>
+      <td data-label="{% translate 'Добавил' %}" class="small nowrap">{{ b.created_by|default:"" }}<br>{{ b.created_at|date:"d.m.Y" }}
+        {% if not b.is_active %}<br><span class="muted">{% translate "снят" %} {{ b.lifted_at|date:"d.m.Y" }}, {{ b.lifted_by|default:"" }}</span>{% endif %}</td>
+      <td>{% if b.is_active %}<form method="post" action="{% url 'ban_lift' b.pk %}" onsubmit="return confirm('{% translate "Снять запрет въезда?" %}')">{% csrf_token %}
+        <button class="btn btn-sm" type="submit">{% translate "Снять запрет" %}</button></form>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+</table></div>
+{% include "includes/pager.html" %}
+{% else %}<div class="empty">{% translate "Запретов нет." %}</div>{% endif %}
+{% endblock %}

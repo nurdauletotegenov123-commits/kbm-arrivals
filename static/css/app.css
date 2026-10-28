@@ -557,3 +557,77 @@ dl.props dd { margin: 0; font-weight: 550; }
 .approval-line .reason { display: block; font-weight: 500; margin-top: .2rem; color: var(--text); }
 .cargo-box .cargo-fields { margin-top: .9rem; }
 .cargo-text { white-space: pre-line; }
+
+/* Telegram */
+.tg-hint {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem .75rem;
+  padding: .6rem .6rem .6rem 1rem; margin-bottom: 1rem; border-radius: var(--radius-sm);
+  background: var(--blue-bg); color: var(--blue); font-weight: 600; font-size: .92rem;
+}
+.tg-card h2 { margin: 0 0 .5rem; }
+.file-list { list-style: none; margin: .4rem 0; padding: 0; display: grid; gap: .3rem; }
+.file-list li { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; }
+.file-list a { font-weight: 600; word-break: break-all; }
+.span-2 { grid-column: 1 / -1; }
+
+/* Обстановка (начальник штаба) */
+.monitor-grid { display: grid; gap: 0 1.5rem; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+@media (max-width: 900px) { .monitor-grid { grid-template-columns: 1fr; } }
+.card.flush { padding: 0; overflow: hidden; }
+.org-row { border-bottom: 1px solid var(--line); }
+.org-row:last-child { border-bottom: none; }
+.org-row summary { display: flex; justify-content: space-between; gap: 1rem; padding: .7rem 1rem; cursor: pointer; font-weight: 600; list-style: none; }
+.org-row summary::-webkit-details-marker { display: none; }
+.org-row summary::before { content: "▸"; color: var(--muted); margin-right: -.5rem; }
+.org-row[open] summary::before { content: "▾"; }
+.org-row summary span { flex: 1; }
+.org-people { list-style: none; margin: 0; padding: 0 1rem .7rem 1.6rem; display: grid; gap: .35rem; }
+.org-people li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .1rem 1rem; }
+.org-people li.overdue { color: var(--amber); }
+.feed { list-style: none; margin: 0; padding: 0; }
+.feed li { padding: .6rem 1rem; border-bottom: 1px solid var(--line); }
+.feed li:last-child { border-bottom: none; }
+.banned, .row-ban td { background: var(--red-bg); }
+.alert-box { background: var(--red-bg); color: var(--red); border-left: 4px solid var(--red); border-radius: var(--radius-sm); padding: .75rem 1rem; margin-bottom: 1rem; }
+.alert-box ul { margin: .35rem 0 0; padding-left: 1.2rem; color: var(--text); }
+.alert-box.lifted { background: var(--gray-bg); color: var(--muted); border-left-color: var(--line); }
+.ban-text { color: var(--red); font-weight: 600; }
+details.card > summary { list-style: none; display: inline-flex; cursor: pointer; }
+details.card > summary::-webkit-details-marker { display: none; }
+.revoke { padding: .7rem 1rem; }
+.check.banned { border-color: var(--red); color: var(--red); }
+.change-line { font-size: .9rem; font-weight: 600; color: var(--violet); background: var(--violet-bg);
+  padding: .3rem .6rem; border-radius: var(--radius-xs); margin-top: .25rem; }
+.change-line s { opacity: .7; font-weight: 500; }
+
+/* --------------------------------------------------------------------------
+   Телефон: таблицы карточками, меню в несколько строк
+   -------------------------------------------------------------------------- */
+@media (max-width: 860px) {
+  /* все разделы видны сразу, без горизонтальной прокрутки меню */
+  .nav { flex-wrap: wrap; overflow: visible; }
+  .nav a { min-height: 44px; }
+}
+@media (max-width: 640px) {
+  table.stack thead { display: none; }
+  table.stack, table.stack tbody, table.stack tr { display: block; width: 100%; }
+  table.stack tr { padding: .8rem .95rem; border-bottom: 1px solid var(--line); }
+  table.stack tr:last-child { border-bottom: none; }
+  table.stack td { display: block; border: none; padding: .12rem 0; white-space: normal; }
+  table.stack td[data-label] { position: relative; padding-left: 7rem; min-height: 1.5em; }
+  table.stack td[data-label]::before {
+    content: attr(data-label); position: absolute; left: 0; top: .2rem; width: 6.4rem;
+    color: var(--muted); font-size: .8rem; font-weight: 500; line-height: 1.3;
+  }
+  table.stack td:not([data-label]):first-child { font-size: 1.02rem; margin-bottom: .2rem; }
+  table.stack td.right { text-align: left; }
+  table.stack .nowrap { white-space: normal; }
+  table.stack td .btn-sm { margin-top: .3rem; }
+  table.compact th, table.compact td { padding: .55rem .4rem; font-size: .86rem; }
+  table.compact th { font-size: .72rem; }
+  table.compact .hide-phone { display: none; }
+  table.compact td .badge { display: none; }  /* строка «сегодня» и так подсвечена */
+  .decision .strike-list .check { flex-wrap: wrap; }
+  .decision .strike-list .check .muted { flex-basis: 100%; padding-left: 1.9rem; }
+  .monitor-grid .feed li .plate { margin-bottom: .2rem; }
+}

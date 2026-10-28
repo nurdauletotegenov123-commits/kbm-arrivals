@@ -13,7 +13,7 @@ from django.utils import timezone
 from accounts.models import Checkpoint, User
 from audit.models import AuditLog
 from visits import services
-from visits.models import Organization, Request, Trip, Visitor
+from visits.models import EntryBan, Organization, Request, Trip, Visitor
 
 R = User.Role
 PASSWORD = "demo1234"
@@ -56,6 +56,7 @@ class Command(BaseCommand):
             Visitor.objects.all().delete()
             Request.objects.all().delete()
             Trip.objects.all().delete()
+            EntryBan.objects.all().delete()
             AuditLog.objects.all().delete()
         elif Request.objects.exists():
             self.stdout.write(self.style.WARNING("Заявки уже есть — данные не созданы. Используйте --reset."))
@@ -196,11 +197,15 @@ class Command(BaseCommand):
         # 12. На согласовании: бригада подрядчика с завозом материалов
         r = req(a1, "Замена выкидной линии скв. 1245", "Нужен допуск на кустовую площадку",
                 approval=Request.Approval.PENDING)
-        for _ in range(3):
-            person(r, orgs["ТОО «Бурсервис-КБМ»"], d(1), d(4), at=time(8, 0), camp_=True, meals="зоу")
+        crew = [person(r, orgs["ТОО «Бурсервис-КБМ»"], d(1), d(4), at=time(8, 0), camp_=True, meals="зоу")
+                for _ in range(3)]
+        # одному из бригады раньше запретили въезд — начальник увидит это при согласовании
+        EntryBan.objects.create(full_name=crew[2].full_name, doc_number=crew[2].doc_number, created_by=chief,
+                                reason="Нарушение ТБ на кусте 1245, акт №45 от 12.09.2026")
         Trip.objects.create(direction=Trip.Direction.CARGO, request=r, date=d(1), time=time(10, 0),
                             vehicle_make="КАМАЗ 65117", vehicle_plate="512BRS12", driver_name="Ахметов Болат",
                             driver_phone="+7 707 555 44 33", cargo="Трубы НКТ 73 мм — 120 шт., задвижки — 6 шт.",
+                            contract_number="№ 245-КБМ/2026 от 01.09.2026",
                             created_by=a1)
 
         # 13. На согласовании: гость на один день
@@ -217,7 +222,8 @@ class Command(BaseCommand):
         person(r, orgs["ТОО «КазМунайТранс-Сервис»"], d(0), d(0), at=time(11, 0), name="Сериков Дастан Ерболович")
         Trip.objects.create(direction=Trip.Direction.CARGO, request=r, date=d(0), time=time(11, 0),
                             vehicle_make="MAN TGS", vehicle_plate="707KMT12", driver_name="Сериков Дастан",
-                            driver_phone="+7 701 999 88 77", cargo="Деэмульгатор, 20 бочек по 200 л", created_by=a1)
+                            driver_phone="+7 701 999 88 77", cargo="Деэмульгатор, 20 бочек по 200 л",
+                            contract_number="№ 112-ХР/2026", created_by=a1)
 
         for r in Request.objects.all():
             AuditLog.objects.create(user=r.author, username=r.author.username, action=AuditLog.Action.REQUEST_CREATE,
