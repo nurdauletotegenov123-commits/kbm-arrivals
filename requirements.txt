@@ -1,6 +1,6 @@
 Django==5.2.18
 openpyxl==3.1.5
-psycopg[binary]==3.2.10
-gunicorn==23.0.0
+psycopg[binary]==3.2.10; sys_platform != "win32"  # PostgreSQL — только на сервере (Docker, Linux)
+gunicorn==23.0.0; sys_platform != "win32"  # под Windows не работает, там runserver
 whitenoise==6.9.0
 tzdata==2026.5
