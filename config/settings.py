@@ -18,7 +18,7 @@ def _load_dotenv(path):
     Уже заданные переменные окружения (в Docker — из env_file) не перезаписываются."""
     if not path.exists():
         return
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():  # utf-8-sig: Блокнот Windows добавляет BOM
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             key, value = line.split("=", 1)
