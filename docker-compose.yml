@@ -28,10 +28,11 @@ services:
     volumes:
       - media:/app/media  # документы на груз
 
-  # Telegram-бот уведомлений: нужен только исходящий доступ к api.telegram.org.
-  # Без TELEGRAM_BOT_TOKEN в .env просто ждёт настройки.
+  # Telegram-бот уведомлений. Выключен по умолчанию (в корпоративной сети Telegram запрещён).
+  # Включить: TELEGRAM_* в .env и docker compose --profile telegram up -d
   bot:
     build: .
+    profiles: ["telegram"]
     restart: unless-stopped
     env_file: .env
     environment:
