@@ -1,0 +1,28 @@
+{% extends "base.html" %}{% load i18n passes assets %}
+{% block title %}{% translate "Пропуска" %} · №{{ req.number }}{% endblock %}
+{% block content %}
+<div class="page-head no-print">
+  <h1>{% translate "Пропуска по заявке" %} №{{ req.number }}</h1>
+  <div class="btn-row"><button class="btn btn-primary" type="button" onclick="window.print()">🖨 {% translate "Печать" %}</button>
+    <a class="btn" href="{% url 'request_detail' req.pk %}">{% translate "Назад" %}</a></div>
+</div>
+<p class="muted small no-print">{% translate "Можно распечатать и вырезать, или отправить человеку его ссылку — пропуск откроется на телефоне." %}</p>
+<div class="print-grid">
+  {% if people|length > 1 %}
+  <article class="print-pass group">
+    <div class="pass-qr">{% qr_svg group_url 4 %}</div>
+    <div><b>{% translate "Общий пропуск" %}</b><div class="small">{% translate "Заявка" %} №{{ req.number }} · {{ people|length }} {% translate "чел." %}</div>
+      <div class="small muted">{{ req.purpose }}</div></div>
+  </article>
+  {% endif %}
+  {% for v in people %}
+  <article class="print-pass">
+    <div class="pass-qr">{% qr_svg v.pass_url 4 %}</div>
+    <div><b>{{ v.full_name }}</b><div class="small">{{ v.organization }}</div>
+      <div class="small">{{ v.arrival_date|date:"d.m.Y" }} — {{ v.departure_date|date:"d.m.Y" }}</div>
+      <div class="small muted">{% translate "Заявка" %} №{{ req.number }} · АО «Каражанбасмунай»</div>
+      <div class="no-print"><a class="small" href="{{ v.pass_url }}" target="_blank">{% translate "открыть ссылку" %}</a></div></div>
+  </article>
+  {% endfor %}
+</div>
+{% endblock %}

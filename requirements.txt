@@ -4,4 +4,5 @@ psycopg[binary]==3.2.10; sys_platform != "win32"  # PostgreSQL — только 
 gunicorn==23.0.0; sys_platform != "win32"  # под Windows не работает, там runserver
 whitenoise==6.9.0
 ldap3==2.9.1  # вход через Active Directory
+segno==1.6.6  # QR-коды пропусков
 tzdata==2026.5

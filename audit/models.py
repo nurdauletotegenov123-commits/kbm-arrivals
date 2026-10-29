@@ -41,6 +41,7 @@ class AuditLog(models.Model):
         RIDE_CANCEL = "ride_cancel", _("Поездка отменена")
         RIDE_DONE = "ride_done", _("Поездка выполнена")
         RIDE_REFUSE = "ride_refuse", _("Диспетчер отказал в машине")
+        PASS_SCAN = "pass_scan", _("Сканирование пропуска на КПП")
         IMPORT = "import", _("Импорт из Excel")
         EXPORT = "export", _("Выгрузка отчёта")
         USER_SIGNUP = "user_signup", _("Регистрация с телефона")

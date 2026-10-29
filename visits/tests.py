@@ -891,3 +891,61 @@ class RideTests(Base):
         self.client.post(reverse("trip_delete", args=[ride.trip_id]))
         ride.refresh_from_db()
         self.assertEqual((ride.status, ride.trip_id), (RideRequest.Status.NEW, None))
+
+
+class PassTests(Base):
+    def test_guest_sees_pass_without_iin(self):
+        v = self.visitor(full_name="Гость Пропуска")
+        self.client.logout()
+        resp = self.client.get(reverse("pass_view", args=[v.pass_token]))
+        self.assertContains(resp, "Гость Пропуска")
+        self.assertContains(resp, "<svg")  # QR
+        self.assertContains(resp, "Действителен")
+        self.assertNotContains(resp, "900101300123")
+        self.assertEqual(resp["X-Robots-Tag"], "noindex, nofollow")
+        self.assertEqual(self.client.get(reverse("pass_view", args=["nope"])).status_code, 404)
+
+    def test_pending_and_cancelled_states(self):
+        req = Request.objects.create(author=self.applicant, purpose="Работы", contact_name="Отв", contact_phone="1")
+        v = self.visitor(request=req)
+        self.assertContains(self.client.get(reverse("pass_view", args=[v.pass_token])), "Ждёт согласования")
+        Request.objects.filter(pk=req.pk).update(approval=Request.Approval.APPROVED)
+        Visitor.objects.filter(pk=v.pk).update(status=Visitor.Status.CANCELLED)
+        self.login(self.security)
+        resp = self.client.get(reverse("pass_view", args=[v.pass_token]))
+        self.assertContains(resp, "Визит отменён")
+        self.assertContains(resp, "Не пропускать")
+        self.assertNotContains(resp, reverse("kpp_action", args=[v.pk, "arrive"]))
+
+    def test_guard_scan_shows_kpp_card_and_logs(self):
+        v = self.visitor(full_name="Сканируемый")
+        self.login(self.security)
+        resp = self.client.get(reverse("pass_view", args=[v.pass_token]))
+        self.assertContains(resp, "900101300123")
+        self.assertContains(resp, reverse("kpp_action", args=[v.pk, "arrive"]))
+        self.assertTrue(AuditLog.objects.filter(action=AuditLog.Action.PASS_SCAN, object_id=str(v.pk)).exists())
+        self.client.post(reverse("kpp_action", args=[v.pk, "arrive"]),
+                         {"next": reverse("pass_view", args=[v.pass_token])})
+        v.refresh_from_db()
+        self.assertEqual(v.status, Visitor.Status.ARRIVED)
+
+    def test_group_pass_bulk_arrive(self):
+        a = self.visitor(full_name="Первый Бригады")
+        b = self.visitor(request=a.request, full_name="Второй Бригады")
+        c = self.visitor(request=a.request, full_name="Третий Бригады")
+        token = a.request.pass_token
+        self.assertContains(self.client.get(reverse("group_pass", args=[token])), "Второй Бригады")
+        self.login(self.applicant)
+        self.assertEqual(self.client.post(reverse("group_arrive", args=[token]), {"visitor": [a.pk]}).status_code, 403)
+        self.login(self.security)
+        self.client.post(reverse("group_arrive", args=[token]), {"visitor": [a.pk, b.pk]})
+        statuses = dict(Visitor.objects.filter(pk__in=[a.pk, b.pk, c.pk]).values_list("full_name", "status"))
+        self.assertEqual(statuses, {"Первый Бригады": "arrived", "Второй Бригады": "arrived", "Третий Бригады": "expected"})
+
+    def test_print_passes_only_for_own_approved_request(self):
+        v = self.visitor()
+        self.login(self.applicant)
+        resp = self.client.get(reverse("print_passes", args=[v.request_id]))
+        self.assertContains(resp, v.pass_token)
+        self.login(self.other)
+        self.assertEqual(self.client.get(reverse("print_passes", args=[v.request_id])).status_code, 404)

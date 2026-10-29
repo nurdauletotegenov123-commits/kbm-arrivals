@@ -1,0 +1,54 @@
+{% extends "base.html" %}{% load i18n passes assets %}
+{% block title %}{% translate "Пропуск" %} · {{ v.full_name }}{% endblock %}
+{% block head %}<meta name="robots" content="noindex, nofollow">{% endblock %}
+{% block content %}
+<div class="pass-wrap">
+  <div class="pass-state pass-{{ state }}">{% if state == "valid" %}✓ {% elif state == "invalid" or state == "expired" %}✕ {% endif %}{{ state_text }}</div>
+
+  {% if guard %}
+    {% if v.ban %}<div class="alert-box"><b>⛔ {% translate "Запрет въезда" %}:</b> {{ v.ban.reason }}</div>{% endif %}
+    {% if on_kpp %}
+      {% include "visits/_person_kpp.html" %}
+    {% else %}
+      <div class="card"><div class="person-name">{{ v.full_name }}</div>
+        <div class="person-sub">{{ v.organization }} · {{ v.get_doc_type_display }} {{ v.doc_number }}</div>
+        <p class="alert-line">{% translate "Не пропускать: человека нет в списке КПП." %} {{ state_text }}.</p></div>
+    {% endif %}
+    {% if v.request.visitors.count > 1 %}<p><a class="btn" href="{{ group_url }}">{% translate "Вся бригада по заявке" %} №{{ v.request.number }}</a></p>{% endif %}
+    <p><a class="btn btn-link" href="{% url 'kpp' %}">← {% translate "КПП" %}</a></p>
+  {% else %}
+    <article class="pass-card">
+      <div class="pass-head">
+        <img src="{% asset 'img/logo-shield.png' %}" alt="">
+        <div><b>АО «Каражанбасмунай»</b><span>{% translate "Пропуск на месторождение" %}</span></div>
+      </div>
+      <div class="pass-qr">{% qr_svg url 7 %}</div>
+      <div class="pass-name">{{ v.full_name }}</div>
+      <div class="pass-sub">{{ v.organization }}{% if v.position %} · {{ v.position }}{% endif %}</div>
+      <dl class="props pass-props">
+        <dt>{% translate "Даты" %}</dt><dd>{{ v.arrival_date|date:"d.m.Y" }}{% if v.arrival_time %} ≈ {{ v.arrival_time|time:"H:i" }}{% endif %} — {{ v.departure_date|date:"d.m.Y" }}</dd>
+        <dt>{% translate "Заявка" %}</dt><dd>№{{ v.request.number }}</dd>
+        {% if v.arrival_trip %}<dt>{% translate "Машина" %}</dt><dd><span class="plate">{{ v.arrival_trip.vehicle_plate }}</span> {{ v.arrival_trip.vehicle_make }}{% if v.arrival_trip.time %}, {{ v.arrival_trip.date|date:"d.m" }} {{ v.arrival_trip.time|time:"H:i" }}{% endif %}
+          {% if v.arrival_trip.pickup_place %}<div class="small">{{ v.arrival_trip.pickup_place }}</div>{% endif %}
+          <div class="small">{% translate "Водитель" %}: {{ v.arrival_trip.driver_name }}{% if v.arrival_trip.driver_phone %}, <a href="tel:{{ v.arrival_trip.driver_phone }}">{{ v.arrival_trip.driver_phone }}</a>{% endif %}</div></dd>{% endif %}
+        {% if v.needs_camp %}<dt>{% translate "Проживание" %}</dt><dd>{% translate "кэмп" %}{% if v.room_display %}, {{ v.room_display }}{% endif %}</dd>{% endif %}
+      </dl>
+      <p class="small muted">{% translate "Покажите этот QR-код на КПП вместе с удостоверением личности." %}</p>
+    </article>
+    <div class="btn-row pass-actions">
+      <button class="btn" type="button" data-share="{{ url }}">{% translate "Поделиться ссылкой" %}</button>
+      <a class="btn" href="https://wa.me/?text={{ url|urlencode }}" target="_blank" rel="noopener">WhatsApp</a>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.querySelectorAll("[data-share]").forEach((b) => b.addEventListener("click", async () => {
+    const url = b.dataset.share;
+    try { if (navigator.share) { await navigator.share({ title: document.title, url }); return; } } catch (e) { return; }
+    try { await navigator.clipboard.writeText(url); b.textContent = "{% translate 'Ссылка скопирована' %}"; }
+    catch (e) { prompt("{% translate 'Скопируйте ссылку' %}", url); }
+  }));
+</script>
+{% endblock %}

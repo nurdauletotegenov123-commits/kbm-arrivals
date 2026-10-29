@@ -630,3 +630,42 @@ details.card > summary::-webkit-details-marker { display: none; }
   .decision .strike-list .check .muted { flex-basis: 100%; padding-left: 1.9rem; }
   .monitor-grid .feed li .plate { margin-bottom: .2rem; }
 }
+
+/* --------------------------------------------------------------------------
+   Электронный пропуск (QR)
+   -------------------------------------------------------------------------- */
+.pass-wrap { max-width: 460px; margin: 0 auto; }
+.pass-state { font-size: 1.15rem; font-weight: 750; text-align: center; padding: .9rem 1rem; border-radius: var(--radius);
+  margin-bottom: 1rem; }
+.pass-valid { background: var(--green); color: #fff; }
+.pass-early, .pass-pending { background: var(--amber-bg); color: var(--amber); }
+.pass-invalid, .pass-expired { background: var(--red); color: #fff; }
+.pass-used { background: var(--gray-bg); color: var(--muted); }
+.pass-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.25rem; text-align: center; }
+.pass-head { display: flex; align-items: center; gap: .75rem; text-align: left; margin-bottom: 1rem; }
+.pass-head img { height: 40px; }
+.pass-head b { display: block; }
+.pass-head span { color: var(--muted); font-size: .9rem; }
+.pass-qr svg { width: 100%; max-width: 280px; height: auto; display: block; margin: 0 auto; }
+.pass-name { font-size: 1.35rem; font-weight: 750; margin-top: .75rem; }
+.pass-sub { color: var(--muted); margin-bottom: .75rem; }
+.pass-props { text-align: left; }
+.pass-people { list-style: none; padding: 0; margin: 1rem 0; text-align: left; display: grid; gap: .35rem; }
+.pass-actions { justify-content: center; margin-top: 1rem; }
+.pass-dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; vertical-align: middle; }
+.pass-dot.pass-valid { background: var(--green); }
+.pass-dot.pass-early, .pass-dot.pass-pending { background: var(--amber); }
+.pass-dot.pass-invalid, .pass-dot.pass-expired { background: var(--red); }
+.pass-dot.pass-used { background: var(--muted); }
+.group-row .check { border: none; padding: 0; background: none; }
+.print-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.print-pass { display: flex; gap: 12px; align-items: center; border: 1px dashed var(--line); border-radius: var(--radius-sm);
+  padding: 10px; background: var(--surface); break-inside: avoid; }
+.print-pass .pass-qr svg { width: 120px; }
+.print-pass.group { border-style: solid; border-color: var(--kbm-blue); }
+@media print {
+  .no-print { display: none !important; }
+  .print-grid { grid-template-columns: 1fr 1fr; }
+  .print-pass { border-color: #999; }
+}
+.passes-box { display: grid; gap: .4rem; }

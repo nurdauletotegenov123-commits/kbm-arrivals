@@ -1,4 +1,5 @@
 import os
+import secrets
 import uuid
 from datetime import time as datetime_time, timedelta
 
@@ -11,6 +12,11 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from .text import normalize_plate, normalize_search, search_terms
+
+
+def new_pass_token():
+    """Код пропуска в ссылке и QR: 128 бит случайности — подобрать невозможно."""
+    return secrets.token_urlsafe(16)
 
 
 class Organization(models.Model):
@@ -57,6 +63,8 @@ class Request(models.Model):
     )
     approved_at = models.DateTimeField(_("время решения"), null=True, blank=True)
     reject_reason = models.TextField(_("причина отказа"), blank=True)
+    pass_token = models.CharField(_("код общего пропуска"), max_length=32, unique=True, default=new_pass_token,
+                                  editable=False)
     created_at = models.DateTimeField(_("создана"), auto_now_add=True)
     updated_at = models.DateTimeField(_("изменена"), auto_now=True)
 
@@ -371,6 +379,9 @@ class Visitor(models.Model):
     camp_room = models.CharField(_("комната"), max_length=50, blank=True)
     checked_in_at = models.DateTimeField(_("время заселения"), null=True, blank=True)
     checked_out_at = models.DateTimeField(_("время выселения"), null=True, blank=True)
+
+    pass_token = models.CharField(_("код пропуска"), max_length=32, unique=True, default=new_pass_token,
+                                  editable=False)
 
     # Заявитель перенёс даты уже согласованной заявки: что было до переноса и когда.
     # Несколько дней это подсвечивается у КПП, кэмпа и диспетчера.

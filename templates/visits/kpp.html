@@ -11,6 +11,7 @@
   <button class="btn btn-primary btn-big" style="min-width:auto" type="submit">{% translate "Найти" %}</button>
 </form>
 
+<p class="small muted kpp-qr-hint">📷 {% translate "Пропуск с QR-кодом: наведите камеру телефона на код и откройте ссылку — появится карточка человека с кнопкой «Прибыл»." %}</p>
 <nav class="tabs">
   <a href="?tab=expected" class="{% if tab == 'expected' %}active{% endif %}">{% translate "Ожидаются" %}<span class="count">{{ counts.expected }}</span>{% if counts.no_shows %}<span class="count warn" title="{% translate 'Не прибыли' %}">{{ counts.no_shows }}</span>{% endif %}</a>
   <a href="?tab=on_site" class="{% if tab == 'on_site' %}active{% endif %}">{% translate "На территории" %}<span class="count">{{ counts.on_site }}</span>{% if counts.leaving %}<span class="count warn" title="{% translate 'Убывают сегодня' %}">{{ counts.leaving }}</span>{% endif %}</a>

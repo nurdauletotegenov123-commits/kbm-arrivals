@@ -111,6 +111,17 @@
 </div>
 {% endif %}{% endwith %}
 
+{% if req.is_approved and not req.is_cancelled %}
+<div class="card passes-box">
+  <b>{% translate "Пропуска с QR-кодом" %}</b>
+  <span class="small muted">{% translate "Отправьте каждому его ссылку или распечатайте. На КПП охрана сканирует QR камерой телефона." %}</span>
+  <div class="btn-row">
+    <a class="btn btn-primary" href="{% url 'print_passes' req.pk %}">🖨 {% translate "Все пропуска" %}</a>
+    {% if visitors|length > 1 %}<a class="btn" href="{% url 'group_pass' req.pass_token %}" target="_blank" rel="noopener">{% translate "Общий пропуск бригады" %}</a>{% endif %}
+  </div>
+</div>
+{% endif %}
+
 <h2>{% translate "Люди" %} ({{ visitors|length }})</h2>
 <div class="table-wrap"><table class="stack">
   <thead><tr><th>{% translate "ФИО" %}</th><th>{% translate "Документ" %}</th><th>{% translate "Даты" %}</th><th>{% translate "Транспорт" %}</th><th>{% translate "Услуги" %}</th><th>{% translate "КПП" %}</th><th>{% translate "Кэмп" %}</th></tr></thead>
@@ -118,6 +129,7 @@
   {% for v in visitors %}
     <tr class="{{ v.state_class }}">
       <td><b>{{ v.full_name }}</b><div class="small muted">{{ v.organization }}{% if v.position %} · {{ v.position }}{% endif %}</div>
+        {% if req.is_approved and not v.is_cancelled %}<a class="small" href="{% url 'pass_view' v.pass_token %}" target="_blank" rel="noopener">{% translate "пропуск" %} ↗</a>{% endif %}
         {% if v.ban %}<div class="small ban-text">⛔ {% translate "Запрет въезда" %}: {{ v.ban.reason }}</div>
         {% elif is_chief and v.doc_number %}<a class="small" href="{% url 'ban_list' %}?full_name={{ v.full_name|urlencode }}&amp;doc_number={{ v.doc_number|urlencode }}">{% translate "запретить въезд" %}</a>{% endif %}</td>
       <td data-label="{% translate 'Документ' %}" class="small">{{ v.get_doc_type_display }}<br>{{ v.doc_number }}</td>

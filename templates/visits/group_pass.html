@@ -1,0 +1,33 @@
+{% extends "base.html" %}{% load i18n passes assets %}
+{% block title %}{% translate "Общий пропуск" %} №{{ req.number }}{% endblock %}
+{% block head %}<meta name="robots" content="noindex, nofollow">{% endblock %}
+{% block content %}
+<div class="pass-wrap">
+  {% if guard %}
+    <div class="page-head"><h1>{% translate "Заявка" %} №{{ req.number }} · {{ people|length }} {% translate "чел." %}</h1></div>
+    <p class="muted">{{ req.purpose }} · {% translate "Отв." %} {{ req.contact_name }} <a href="tel:{{ req.contact_phone }}">{{ req.contact_phone }}</a></p>
+    <form method="post" action="{% url 'group_arrive' req.pass_token %}">{% csrf_token %}
+      <div class="card flush"><ul class="feed">{% for v in people %}
+        <li class="group-row{% if v.ban %} banned{% endif %}">
+          <label class="check{% if not v.can_arrive %} is-disabled{% endif %}">
+            <input type="checkbox" name="visitor" value="{{ v.pk }}"{% if v.can_arrive and not v.ban %} checked{% endif %}{% if not v.can_arrive %} disabled{% endif %}>
+            <span><b>{{ v.full_name }}</b> <span class="muted small">{{ v.get_doc_type_display }} {{ v.doc_number }}</span></span>
+          </label>
+          <div class="small"><span class="pass-dot pass-{{ v.pass_state }}"></span> {{ v.pass_text }}{% if v.ban %} · <span class="ban-text">⛔ {{ v.ban.reason }}</span>{% endif %}</div>
+        </li>{% endfor %}</ul></div>
+      {% if can_arrive_any %}<button class="btn btn-green btn-big" type="submit" onclick="return confirm('{% translate "Отметить выбранных прибывшими?" %}')">✓ {% translate "Отмеченные прибыли" %}</button>{% endif %}
+    </form>
+    <p><a class="btn btn-link" href="{% url 'kpp' %}">← {% translate "КПП" %}</a></p>
+  {% else %}
+    <article class="pass-card">
+      <div class="pass-head">
+        <img src="{% asset 'img/logo-shield.png' %}" alt="">
+        <div><b>АО «Каражанбасмунай»</b><span>{% translate "Общий пропуск по заявке" %} №{{ req.number }}</span></div>
+      </div>
+      <div class="pass-qr">{% qr_svg url 7 %}</div>
+      <ul class="pass-people">{% for v in people %}<li><span class="pass-dot pass-{{ v.pass_state }}"></span> {{ v.full_name }} <span class="muted small">{{ v.pass_text }}</span></li>{% endfor %}</ul>
+      <p class="small muted">{% translate "Старший показывает этот QR-код на КПП; у каждого с собой удостоверение личности." %}</p>
+    </article>
+  {% endif %}
+</div>
+{% endblock %}
