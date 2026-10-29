@@ -27,7 +27,9 @@ def _is_guard(user):
 
 def _no_index(response):
     response["X-Robots-Tag"] = "noindex, nofollow"
-    response["Referrer-Policy"] = "no-referrer"
+    # same-origin: ссылка с кодом пропуска не уходит на сторонние сайты (WhatsApp и т.п.), а кнопки «Прибыл»
+    # работают. С no-referrer браузер шлёт «Origin: null» и Django отклоняет нажатие как подделку (CSRF).
+    response["Referrer-Policy"] = "same-origin"
     return response
 
 

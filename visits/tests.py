@@ -903,6 +903,7 @@ class PassTests(Base):
         self.assertContains(resp, "Действителен")
         self.assertNotContains(resp, "900101300123")
         self.assertEqual(resp["X-Robots-Tag"], "noindex, nofollow")
+        self.assertEqual(resp["Referrer-Policy"], "same-origin")
         self.assertEqual(self.client.get(reverse("pass_view", args=["nope"])).status_code, 404)
 
     def test_pending_and_cancelled_states(self):
@@ -916,6 +917,20 @@ class PassTests(Base):
         self.assertContains(resp, "Визит отменён")
         self.assertContains(resp, "Не пропускать")
         self.assertNotContains(resp, reverse("kpp_action", args=[v.pk, "arrive"]))
+
+    def test_arrive_from_pass_page_passes_real_csrf_check(self):
+        """Как в браузере телефона: настоящая проверка CSRF и заголовок Origin своего сайта."""
+        from django.test import Client
+        v = self.visitor()
+        c = Client(enforce_csrf_checks=True)
+        c.force_login(self.security)
+        page = c.get(reverse("pass_view", args=[v.pass_token]))
+        token = page.context["csrf_token"]
+        resp = c.post(reverse("kpp_action", args=[v.pk, "arrive"]), {"csrfmiddlewaretoken": str(token)},
+                      HTTP_ORIGIN="http://testserver")
+        self.assertEqual(resp.status_code, 302)
+        v.refresh_from_db()
+        self.assertEqual(v.status, Visitor.Status.ARRIVED)
 
     def test_guard_scan_shows_kpp_card_and_logs(self):
         v = self.visitor(full_name="Сканируемый")
