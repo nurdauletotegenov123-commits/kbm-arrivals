@@ -2,18 +2,32 @@
 {% block title %}{% translate "Пользователь" %}{% endblock %}
 {% block content %}
 <h1>{% if is_new %}{% translate "Новый пользователь" %}{% else %}{{ obj.username }}{% endif %}</h1>
+{% if obj.from_ad %}<p class="muted">{% translate "Учётная запись домена: входит паролем Windows, ФИО, почта и телефон обновляются из AD при каждом входе." %}</p>{% endif %}
 <form method="post" class="card" style="max-width:720px">
   {% csrf_token %}
   {% include "includes/form_errors.html" %}
   <div class="grid-2">
     {% for field in form %}{% if field.field.widget.input_type == "checkbox" %}<div class="field">{% include "includes/check.html" %}</div>{% else %}{% include "includes/field.html" %}{% endif %}{% endfor %}
   </div>
-  <p class="small muted">{% translate "Охрана — выберите КПП, на котором работает аккаунт. Для кэмпа и столовой обычно заводится один общий аккаунт службы." %}</p>
+  <p class="small muted">{% translate "Роль определяет, что видит человек: «Начальник штаба безопасности» — согласование, обстановку и запрет въезда; «Охрана (КПП)» — отметки на КПП (выберите КПП); «Диспетчер транспорта» — машины; «Кэмп и столовая» — заселение и питание; «Администратор» — всё, включая пользователей. Для кэмпа и столовой обычно хватает одного общего аккаунта службы." %}</p>
+  {% if ad_groups %}<p class="small muted">⚠ {% translate "Роли сотрудников домена сейчас задаются группами AD: роль, выбранная здесь, заменится при следующем входе." %}</p>{% endif %}
   <div class="btn-row">
     <button class="btn btn-primary" type="submit">{% translate "Сохранить" %}</button>
     <a class="btn" href="{% url 'user_list' %}">{% translate "Отмена" %}</a>
-    {% if obj %}<a class="btn" href="{% url 'user_password' obj.pk %}">{% translate "Сменить пароль" %}</a>
+    {% if obj and not obj.from_ad %}<a class="btn" href="{% url 'user_password' obj.pk %}">{% translate "Сменить пароль" %}</a>{% endif %}
+    {% if obj %}
     <a class="btn btn-link" href="{% url 'audit_list' %}?user={{ obj.username|urlencode }}">{% translate "Действия пользователя" %}</a>{% endif %}
   </div>
 </form>
 {% endblock %}
+{% block scripts %}{% if is_new %}
+<script>
+  (function () {  // «вход паролем Windows» — поля пароля не нужны
+    var box = document.getElementById("id_domain_account");
+    if (!box) return;
+    var fields = ["id_password1", "id_password2"].map(function (id) { return document.getElementById(id).closest(".field"); });
+    function sync() { fields.forEach(function (f) { f.classList.toggle("hidden", box.checked); }); }
+    box.addEventListener("change", sync); sync();
+  })();
+</script>
+{% endif %}{% endblock %}

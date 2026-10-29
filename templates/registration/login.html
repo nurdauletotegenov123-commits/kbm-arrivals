@@ -17,15 +17,19 @@
     <input type="hidden" name="next" value="{{ next }}">
     <button class="btn btn-primary btn-big" style="width:100%" type="submit">{% translate "Войти" %}</button>
   </form>
+  {% if ad_enabled %}<p class="muted small" style="text-align:center">{% translate "Сотрудники КБМ входят под своей учётной записью Windows." %}</p>{% endif %}
   {% if signup_enabled %}
   <div class="card signup-hint">
     <b>{% translate "Подрядчик или гость?" %}</b>
     <span class="small muted">{% translate "Зарегистрируйтесь с телефона и подайте заявку на въезд. Заявку согласует штаб безопасности." %}</span>
     <a class="btn btn-big" href="{% url 'signup' %}">{% translate "Регистрация" %}</a>
   </div>
-  <p class="muted small" style="text-align:center">{% if ad_enabled %}{% translate "Сотрудники КБМ входят под своей учётной записью Windows." %}{% else %}{% translate "Сотрудникам служб доступ выдаёт администратор системы." %}{% endif %}</p>
-  {% else %}
-  <p class="muted small" style="text-align:center">{% translate "Нет доступа? Обратитесь к администратору системы." %}</p>
+  {% elif access_email %}
+  <div class="card signup-hint">
+    <b>{% translate "Нет доступа?" %}</b>
+    <span class="small muted">{% translate "Если вас нет в домене kbm.kz или вы подрядчик, напишите на почту — администратор добавит вас в систему. Укажите ФИО, организацию, телефон и для чего нужен доступ." %}</span>
+    <a class="btn btn-big" href="mailto:{{ access_email }}?subject={{ access_subject|urlencode }}&amp;body={{ access_body|urlencode }}">✉ {{ access_email }}</a>
+  </div>
   {% endif %}
 </div>
 {% endblock %}

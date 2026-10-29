@@ -14,6 +14,7 @@ from .management.commands.telegram_bot import Command
 from .models import User
 
 
+@override_settings(SIGNUP_ENABLED=True)
 class SignupTests(TestCase):
     def data(self, **kw):
         d = {"full_name": "Подрядчиков Пётр", "organization": "ТОО Подряд", "phone": "8 (701) 123-45-67",
@@ -204,3 +205,39 @@ class ADSyncTests(TestCase):
         local.refresh_from_db()
         self.assertFalse(gone.is_active)
         self.assertTrue(local.is_active)
+
+
+class AdminAddsUsersTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user("boss", password="x-pass-123", role=User.Role.ADMIN)
+        self.client.force_login(self.admin)
+
+    def post(self, **data):
+        base = {"role": "applicant", "full_name": "Тест", "is_active": "on", "notify_by_email": "on"}
+        return self.client.post(reverse("user_create"), {**base, **data})
+
+    def test_login_page_offers_email_instead_of_signup(self):
+        self.client.logout()
+        resp = self.client.get(reverse("login"))
+        self.assertContains(resp, "mailto:N_Otegenov@kbm.kz")
+        self.assertNotContains(resp, reverse("signup"))
+        self.assertEqual(self.client.get(reverse("signup")).status_code, 404)
+
+    def test_domain_employee_without_password_keeps_chief_role(self):
+        resp = self.post(domain_account="on", username="KBM\\A_Ivanov", role="chief")
+        self.assertEqual(resp.status_code, 302)
+        user = User.objects.get(username="a_ivanov")
+        self.assertTrue(user.from_ad)
+        self.assertFalse(user.has_usable_password())
+        self.assertEqual(self.client.get(reverse("user_password", args=[user.pk])).status_code, 302)
+        from . import ad
+        with self.settings(**{**AD_SETTINGS, "AD_GROUPS": {k: "" for k in AD_SETTINGS["AD_GROUPS"]}}):
+            self.assertEqual(ad.role_for(ad_info(username="a_ivanov", groups=set()), user.role), User.Role.CHIEF)
+
+    def test_contractor_by_phone_and_duplicates(self):
+        resp = self.post(username="8 (701) 555-44-33", password1="Kbm-pass-2026", password2="Kbm-pass-2026")
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(User.objects.filter(username="77015554433").exists())
+        self.assertContains(self.post(username="+7 701 555 44 33", password1="Kbm-pass-2026",
+                                      password2="Kbm-pass-2026"), "уже есть")
+        self.assertContains(self.post(username="no_password"), "Задайте пароль")

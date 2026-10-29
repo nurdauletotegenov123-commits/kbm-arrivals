@@ -29,8 +29,25 @@ class UserForm(forms.ModelForm):
         model = User
         fields = USER_FIELDS
         labels = {"username": _("Логин"), "is_active": _("Активен (может входить)")}
-        help_texts = {"username": _("Латиница, цифры и символы @.+-_"), "is_active": ""}
+        help_texts = {
+            "username": _("Сотрудник КБМ — доменный логин (как в Windows, например N_Otegenov). "
+                          "Подрядчик — номер мобильного телефона: +7 7XX XXX XX XX."),
+            "is_active": "",
+        }
 
+    def clean_username(self):
+        """Подрядчик: телефон → 77011234567 (войдёт, набрав номер в любом формате).
+        Сотрудник домена: «KBM\\N_Otegenov», «N_Otegenov@kbm.kz» → «n_otegenov», как при входе через AD."""
+        from .ad import sam_from_login
+
+        value = self.cleaned_data["username"].strip()
+        if self.instance.from_ad or getattr(self, "domain", False):
+            value = sam_from_login(value) or value
+        elif looks_like_phone(value):
+            value = normalize_phone(value) or value
+        if User.objects.filter(username__iexact=value).exclude(pk=self.instance.pk).exists():
+            raise forms.ValidationError(_("Пользователь с таким логином уже есть."))
+        return value
 
     def save(self, commit=True):
         user = super().save(commit=False)
@@ -42,15 +59,34 @@ class UserForm(forms.ModelForm):
 
 
 class UserCreateForm(UserForm):
-    password1 = forms.CharField(label=_("Пароль"), widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}))
-    password2 = forms.CharField(label=_("Пароль ещё раз"), widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}))
+    domain_account = forms.BooleanField(
+        label=_("Сотрудник КБМ — вход паролем Windows (учётная запись домена)"), required=False,
+        help_text=_("Пароль не задаётся: его проверяет контроллер домена. ФИО, почта и телефон подтянутся из AD "
+                    "при первом входе. Роль, выбранная здесь, сохранится."),
+    )
+    password1 = forms.CharField(label=_("Пароль"), required=False,
+                                widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+                                help_text=_("Для подрядчиков и служебных аккаунтов. Передайте его человеку лично или по телефону."))
+    password2 = forms.CharField(label=_("Пароль ещё раз"), required=False,
+                                widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}))
+
+    field_order = ["domain_account", "username", "full_name", "role", "checkpoint", "organization", "phone", "email",
+                   "password1", "password2", "notify_by_email", "is_active"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.domain = bool(self.data.get(self.add_prefix("domain_account")))
 
     def clean(self):
         data = super().clean()
+        if data.get("domain_account"):
+            return data
         p1, p2 = data.get("password1"), data.get("password2")
-        if p1 and p2 and p1 != p2:
+        if not p1:
+            self.add_error("password1", _("Задайте пароль или отметьте «Сотрудник КБМ — вход паролем Windows»."))
+        elif p1 != p2:
             self.add_error("password2", _("Пароли не совпадают."))
-        elif p1:
+        else:
             try:
                 validate_password(p1, self.instance)
             except forms.ValidationError as e:
@@ -59,7 +95,11 @@ class UserCreateForm(UserForm):
 
     def save(self, commit=True):
         user = super().save(commit=False)
-        user.set_password(self.cleaned_data["password1"])
+        if self.cleaned_data.get("domain_account"):
+            user.from_ad = True
+            user.set_unusable_password()
+        else:
+            user.set_password(self.cleaned_data["password1"])
         if commit:
             user.save()
         return user

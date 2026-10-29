@@ -34,6 +34,13 @@ def _too_many(request, action, limit, minutes):
     return bool(ip) and AuditLog.objects.filter(action=action, ip_address=ip, created_at__gte=since).count() >= limit
 
 
+ACCESS_BODY = (
+    "Здравствуйте! Прошу добавить меня в систему «Учёт прибытия».\n\n"
+    "ФИО:\nОрганизация:\nДолжность:\nМобильный телефон:\n"
+    "Для чего нужен доступ (подача заявок, завоз материалов и т.п.):\n"
+)
+
+
 class LoginView(auth_views.LoginView):
     template_name = "registration/login.html"
     redirect_authenticated_user = True
@@ -41,7 +48,8 @@ class LoginView(auth_views.LoginView):
 
     def get_context_data(self, **kwargs):
         return {**super().get_context_data(**kwargs), "signup_enabled": settings.SIGNUP_ENABLED,
-                "ad_enabled": settings.AD_ENABLED}
+                "ad_enabled": settings.AD_ENABLED, "access_email": settings.ACCESS_EMAIL,
+                "access_subject": _("Доступ к системе «Учёт прибытия»"), "access_body": ACCESS_BODY}
 
     def post(self, request, *args, **kwargs):
         if _too_many(request, AuditLog.Action.LOGIN_FAILED, settings.LOGIN_FAILS_LIMIT, 15):
@@ -79,6 +87,11 @@ def _snapshot(user):
     return {f: str(getattr(user, f)) if getattr(user, f) is not None else None for f in USER_FIELDS}
 
 
+def _ad_groups():
+    """Роли сотрудников домена приходят из групп AD (тогда ручная роль перезапишется при входе)."""
+    return settings.AD_ENABLED and any(settings.AD_GROUPS.values())
+
+
 @role_required(R.ADMIN)
 def user_list(request):
     qs = User.objects.select_related("checkpoint")
@@ -104,7 +117,7 @@ def user_create(request):
         log_action(request, AuditLog.Action.USER_CREATE, user, _snapshot(user))
         messages.success(request, _("Пользователь %(u)s создан.") % {"u": user.username})
         return redirect("user_list")
-    return render(request, "accounts/user_form.html", {"form": form, "is_new": True})
+    return render(request, "accounts/user_form.html", {"form": form, "is_new": True, "ad_groups": _ad_groups()})
 
 
 @role_required(R.ADMIN)
@@ -123,12 +136,16 @@ def user_edit(request, pk):
                 log_action(request, AuditLog.Action.USER_UPDATE, user, changes)
             messages.success(request, _("Сохранено."))
             return redirect("user_list")
-    return render(request, "accounts/user_form.html", {"form": form, "obj": user, "is_new": False})
+    return render(request, "accounts/user_form.html", {"form": form, "obj": user, "is_new": False,
+                                                       "ad_groups": user.from_ad and _ad_groups()})
 
 
 @role_required(R.ADMIN)
 def user_password(request, pk):
     user = get_object_or_404(User, pk=pk)
+    if user.from_ad:  # пароль домена меняется в Windows; локальный пароль открыл бы вход в обход AD
+        messages.warning(request, _("У учётной записи домена пароль меняется в Windows, не здесь."))
+        return redirect("user_edit", pk=user.pk)
     form = PasswordForm(user, request.POST or None)
     if form.is_valid():
         form.save()

@@ -230,7 +230,9 @@ NO_SHOW_DAYS = int(env("NO_SHOW_DAYS", "2"))
 DATE_CHANGE_DAYS = int(env("DATE_CHANGE_DAYS", "3"))
 
 # Регистрация заявителей с телефона (подрядчики, гости). 0 — регистрацию закрыть, аккаунты заводит админ.
-SIGNUP_ENABLED = env("SIGNUP_ENABLED", "1") == "1"
+SIGNUP_ENABLED = env("SIGNUP_ENABLED", "0") == "1"  # выключена: подрядчиков заводит администратор
+# Куда писать за доступом (показывается на странице входа вместо регистрации)
+ACCESS_EMAIL = env("ACCESS_EMAIL", "N_Otegenov@kbm.kz")
 SIGNUPS_PER_HOUR = int(env("SIGNUPS_PER_HOUR", "10"))  # с одного IP
 LOGIN_FAILS_LIMIT = int(env("LOGIN_FAILS_LIMIT", "10"))  # неудачных входов с одного IP за 15 минут
 

@@ -23,7 +23,7 @@
       <td data-label="{% translate 'Контакты' %}" class="small">{{ u.phone }}{% if u.email %}<br>{{ u.email }}{% endif %}</td>
       <td data-label="{% translate 'Последний вход' %}" class="small nowrap">{{ u.last_login|date:"d.m.Y H:i"|default:"—" }}</td>
       <td class="nowrap"><a class="btn btn-sm" href="{% url 'user_edit' u.pk %}">{% translate "Изменить" %}</a>
-        <a class="btn btn-sm" href="{% url 'user_password' u.pk %}">{% translate "Пароль" %}</a></td>
+        {% if not u.from_ad %}<a class="btn btn-sm" href="{% url 'user_password' u.pk %}">{% translate "Пароль" %}</a>{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>
