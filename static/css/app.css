@@ -603,11 +603,10 @@ details.card > summary::-webkit-details-marker { display: none; }
 /* --------------------------------------------------------------------------
    Телефон: таблицы карточками, меню в несколько строк
    -------------------------------------------------------------------------- */
-@media (max-width: 860px) {
-  /* все разделы видны сразу, без горизонтальной прокрутки меню */
-  .nav { flex-wrap: wrap; overflow: visible; }
-  .nav a { min-height: 44px; }
-}
+/* все разделы видны сразу: меню переносится на вторую строку, а не уходит за край
+   (у администратора 10 пунктов — «Пользователи» и «Журнал» прятались справа) */
+.nav { flex-wrap: wrap; overflow: visible; }
+.nav a { min-height: 44px; }
 @media (max-width: 640px) {
   table.stack thead { display: none; }
   table.stack, table.stack tbody, table.stack tr { display: block; width: 100%; }
