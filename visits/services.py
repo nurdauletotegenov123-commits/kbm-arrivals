@@ -8,7 +8,7 @@ from audit.models import AuditLog
 from audit.utils import log_action
 
 from .models import CargoFile, Request, Trip, Visitor
-from .notifications import notify_trip
+from .notifications import notify_ride, notify_trip
 
 S = Visitor.Status
 P = Request.Approval
@@ -324,6 +324,8 @@ def update_trip(trip, before, user, request=None):
         log_action(request, A.TRIP_UPDATE, trip, changes, user=user)
         if set(changes) - {"comment"}:  # время, место, машина или водитель — заявителю важно знать
             notify_trip(trip, list(trip.passengers().select_related("request__author")), "update")
+            for ride in trip.rides.all():
+                notify_ride(ride, "update")
     return trip
 
 
@@ -350,6 +352,10 @@ def delete_trip(trip, user, request=None):
     names = [v.full_name for v in people]
     log_action(request, A.TRIP_DELETE, trip, {**_trip_snapshot(trip), "пассажиры": names}, user=user)
     notify_trip(trip, people, "cancel")
+    for ride in trip.rides.select_related("author"):  # заявки на машину снова ждут машину
+        ride.status = ride.Status.NEW
+        ride.save(update_fields=["status", "updated_at"])
+        notify_ride(ride, "unassign", trip=trip)
     trip.delete()  # пассажиры снова «без машины» (SET_NULL)
     return names
 

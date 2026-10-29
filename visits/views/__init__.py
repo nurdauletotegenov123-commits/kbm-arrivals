@@ -5,6 +5,7 @@ from .canteen import canteen  # noqa: F401
 from .dispatch import dispatch, dispatch_assign, trip_delete, trip_edit, trip_remove  # noqa: F401
 from .kpp import kpp, kpp_action, kpp_trip_action  # noqa: F401
 from .reports import reports  # noqa: F401
+from .rides import ride_action, ride_create, ride_detail, ride_list  # noqa: F401
 from .requests import (  # noqa: F401
     cargo_file, dashboard, import_parse, import_template, request_cancel, request_create, request_detail, request_edit,
     request_list,

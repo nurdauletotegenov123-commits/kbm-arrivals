@@ -15,7 +15,7 @@ from audit.models import AuditLog
 
 from .. import bans, services
 from ..forms import BanForm
-from ..models import EntryBan, Request, Trip, Visitor
+from ..models import EntryBan, Request, RideRequest, Trip, Visitor
 from .common import R
 
 S = Visitor.Status
@@ -49,7 +49,9 @@ def monitor(request):
         "no_shows": len(no_shows),
         "overdue": sum(1 for v in on_site if v.departure_date < today),
         "cargo_today": len(cargo_today),
-        "pending": Request.objects.filter(approval=Request.Approval.PENDING, is_cancelled=False).count(),
+        "pending": Request.objects.filter(approval=Request.Approval.PENDING, is_cancelled=False).count()
+        + RideRequest.objects.filter(approval=RideRequest.Approval.PENDING).exclude(
+            status=RideRequest.Status.CANCELLED).count(),
         "waiting_car": Visitor.objects.approved().filter(
             needs_transport=True, arrival_trip__isnull=True, status=S.EXPECTED,
             arrival_date__range=(today, today + timedelta(days=1))).count(),

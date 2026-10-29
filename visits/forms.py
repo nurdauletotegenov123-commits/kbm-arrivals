@@ -8,7 +8,7 @@ from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from .models import EntryBan, Organization, Request, Trip, Visitor
+from .models import EntryBan, Organization, Point, Request, Trip, Visitor
 
 
 class DateInput(forms.DateInput):
@@ -281,3 +281,70 @@ class BanForm(forms.ModelForm):
             "vehicle_plate": forms.TextInput(attrs={"placeholder": "123ABC12"}),
             "full_name": forms.TextInput(attrs={"placeholder": _("ФИО человека или «Машина ТОО …»")}),
         }
+
+
+class RideForm(forms.Form):
+    """Заявка на машину. Кто едет — по одному в строке; на месторождение — «ФИО, ИИН»."""
+
+    from_point = forms.ModelChoiceField(Point.objects.filter(is_active=True), label=_("Откуда"), required=False,
+                                        empty_label=_("— выберите точку или впишите адрес —"))
+    from_address = forms.CharField(label=_("Адрес, откуда забрать"), max_length=300, required=False)
+    to_point = forms.ModelChoiceField(Point.objects.filter(is_active=True), label=_("Куда"), required=False,
+                                      empty_label=_("— выберите точку или впишите адрес —"))
+    to_address = forms.CharField(label=_("Адрес, куда отвезти"), max_length=300, required=False)
+    date = forms.DateField(label=_("Дата"), widget=DateInput())
+    time = forms.TimeField(label=_("Время подачи"), widget=TimeInput())
+    passengers = forms.CharField(
+        label=_("Кто едет"), required=False, widget=forms.Textarea(attrs={"rows": 3}),
+        help_text=_("По одному человеку в строке. На месторождение — через запятую ФИО и ИИН: "
+                    "«Иванов Иван Иванович, 900101300123». Только груз — оставьте пустым."),
+    )
+    cargo = forms.CharField(label=_("Груз (если есть)"), required=False,
+                            widget=forms.Textarea(attrs={"rows": 2, "placeholder": _("Например: кабель ВВГ 3×2,5 — 2 бухты")}))
+    with_return = forms.BooleanField(label=_("Нужна машина и обратно"), required=False)
+    return_date = forms.DateField(label=_("Дата обратно"), required=False, widget=DateInput())
+    return_time = forms.TimeField(label=_("Время обратно"), required=False, widget=TimeInput())
+    contact_phone = forms.CharField(label=_("Контактный телефон"), max_length=50,
+                                    widget=forms.TextInput(attrs={"type": "tel", "placeholder": "+7 7__ ___ __ __"}))
+    comment = forms.CharField(label=_("Комментарий"), required=False, widget=forms.Textarea(attrs={"rows": 2}))
+
+    def clean(self):
+        data = super().clean()
+        for side in ("from", "to"):
+            if not data.get(f"{side}_point") and not (data.get(f"{side}_address") or "").strip():
+                self.add_error(f"{side}_address", _("Выберите точку или впишите адрес."))
+        if data.get("from_point") and data.get("from_point") == data.get("to_point"):
+            self.add_error("to_point", _("Точки «Откуда» и «Куда» совпадают."))
+        if data.get("date") and data["date"] < timezone.localdate():
+            self.add_error("date", _("Дата не может быть в прошлом."))
+        if data.get("with_return"):
+            if not data.get("return_date"):
+                data["return_date"] = data.get("date")
+            if data.get("date") and data["return_date"] < data["date"]:
+                self.add_error("return_date", _("Обратно — не раньше поездки туда."))
+            if not data.get("return_time"):
+                self.add_error("return_time", _("Укажите время обратно."))
+        guarded = bool(data.get("to_point") and data["to_point"].is_guarded)
+        data["people"] = self._people(data.get("passengers") or "", guarded)
+        if not data["people"] and not (data.get("cargo") or "").strip():
+            self.add_error("passengers", _("Укажите, кто едет, или опишите груз."))
+        return data
+
+    def _people(self, text, guarded):
+        """[(ФИО, документ)]; на охраняемую территорию документ обязателен (его проверяет КПП)."""
+        people = []
+        for n, line in enumerate((l.strip() for l in text.splitlines()), start=1):
+            if not line:
+                continue
+            name, _sep, doc = line.rpartition(",") if "," in line else (line, "", "")
+            name, doc = " ".join(name.split()), doc.replace(" ", "")
+            if guarded and not doc:
+                self.add_error("passengers", _("Строка %(n)s: на месторождение укажите ИИН через запятую после ФИО.") % {"n": n})
+            elif doc and doc.isdigit() and not re.fullmatch(r"\d{12}", doc):
+                self.add_error("passengers", _("Строка %(n)s: ИИН должен состоять из 12 цифр.") % {"n": n})
+            people.append((name[:200], doc[:50]))
+        return people
+
+
+class ReasonForm(forms.Form):
+    reason = forms.CharField(label=_("Причина"), max_length=1000, widget=forms.Textarea(attrs={"rows": 2}))

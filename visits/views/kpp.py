@@ -31,9 +31,13 @@ def _trips_today(today):
 
 
 def _visible_trips(qs):
-    """Машина с грузом видна охране только по согласованной и не отменённой заявке."""
-    return qs.filter(Q(request__isnull=True) | Q(request__approval=Request.Approval.APPROVED, request__is_cancelled=False)) \
-        .select_related("request").prefetch_related("files")
+    """Охрана видит: машины диспетчера на привоз/вывоз; машину с грузом — по согласованной заявке;
+    машину по заявкам на машину — если она едет на охраняемую территорию или забирает оттуда."""
+    D = Trip.Direction
+    guarded_ride = Q(direction=D.RIDE) & (Q(rides__to_point__is_guarded=True) | Q(rides__from_point__is_guarded=True))
+    cargo = Q(direction=D.CARGO, request__approval=Request.Approval.APPROVED, request__is_cancelled=False)
+    return qs.filter(Q(direction__in=[D.IN, D.OUT]) | cargo | guarded_ride).distinct() \
+        .select_related("request").prefetch_related("files", "rides__passengers", "rides__from_point", "rides__to_point")
 
 
 @role_required(R.SECURITY)
@@ -88,6 +92,10 @@ def kpp(request):
         sections.append({"title": _("Ожидаются сегодня"), "items": list(expected),
                          "empty": _("На сегодня больше никого не ожидается.")})
 
+    for t in trips:
+        if t.is_ride:  # пассажиры заявок на машину — с ИИН, для сверки на КПП
+            t.ride_people = [p for r in t.rides.all() for p in r.passengers.all()]
+            bans.mark(t.ride_people)
     bans.mark([v for s in sections for v in s["items"]], trips)
     return render(request, "visits/kpp.html", {
         "tab": tab, "q": q, "sections": sections, "trips": trips, "counts": counts, "today": today,

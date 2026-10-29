@@ -7,7 +7,21 @@
   <a href="?tab=pending" class="{% if tab == 'pending' %}active{% endif %}">{% translate "Ждут решения" %}<span class="count{% if counts.pending %} warn{% endif %}">{{ counts.pending }}</span></a>
   <a href="?tab=approved" class="{% if tab == 'approved' %}active{% endif %}">{% translate "Согласованные" %}<span class="count">{{ counts.approved }}</span></a>
   <a href="?tab=rejected" class="{% if tab == 'rejected' %}active{% endif %}">{% translate "Отклонённые" %}<span class="count">{{ counts.rejected }}</span></a>
+  <a href="?tab=rides" class="{% if tab == 'rides' %}active{% endif %}">{% translate "Поездки на месторождение" %}{% if counts.rides %}<span class="count warn">{{ counts.rides }}</span>{% endif %}</a>
 </nav>
+{% if tab == "rides" %}
+  <h2 class="section-title">{% translate "Ждут решения" %} <span class="badge">{{ rides_pending|length }}</span></h2>
+  {% if rides_pending %}<div class="table-wrap"><table class="stack">
+    <thead><tr><th>№</th><th>{% translate "Маршрут" %}</th><th>{% translate "Когда" %}</th><th>{% translate "Заявитель" %}</th><th>{% translate "Статус" %}</th></tr></thead>
+    <tbody>{% for r in rides_pending %}{% include "visits/_ride_row.html" with show_author=True %}{% endfor %}</tbody></table></div>
+  {% else %}<div class="empty">{% translate "Новых поездок на месторождение нет." %}</div>{% endif %}
+  {% if rides_recent %}
+  <h2 class="section-title">{% translate "Последние решения" %}</h2>
+  <div class="table-wrap"><table class="stack">
+    <thead><tr><th>№</th><th>{% translate "Маршрут" %}</th><th>{% translate "Когда" %}</th><th>{% translate "Заявитель" %}</th><th>{% translate "Статус" %}</th></tr></thead>
+    <tbody>{% for r in rides_recent %}{% include "visits/_ride_row.html" with show_author=True %}{% endfor %}</tbody></table></div>
+  {% endif %}
+{% else %}
 <form class="searchbar" method="get">
   <input type="hidden" name="tab" value="{{ tab }}">
   <input type="search" name="q" value="{{ q }}" placeholder="{% translate 'ФИО, ИИН, госномер, цель визита' %}">
@@ -16,4 +30,5 @@
 {% if tab == "pending" and not page.object_list and not q %}<div class="empty">{% translate "Новых заявок нет." %}</div>
 {% else %}{% include "visits/_request_table.html" with requests=page.object_list show_author=True %}{% endif %}
 {% include "includes/pager.html" %}
+{% endif %}
 {% endblock %}

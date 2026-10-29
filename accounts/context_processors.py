@@ -26,6 +26,8 @@ def nav(request):
         add([R.CHIEF], "people_search", _("Проверка"))
         add([R.CHIEF], "ban_list", _("Запрет въезда"))
     add([R.APPLICANT], "request_list", _("Заявки"))
+    if user.role == R.APPLICANT:  # у администратора заявки на машину видны через «Транспорт» и «Согласование»
+        add([R.APPLICANT], "ride_list", _("Машина"))
     add([R.DISPATCHER], "dispatch", _("Транспорт"))
     add([R.SECURITY], "kpp", _("КПП"))
     add([R.CAMP], "camp", _("Кэмп"))

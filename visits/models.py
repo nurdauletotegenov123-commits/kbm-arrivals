@@ -153,6 +153,7 @@ class Trip(models.Model):
         IN = "in", _("Привоз")
         OUT = "out", _("Вывоз")
         CARGO = "cargo", _("Завоз груза")  # машина подрядчика с материалами, указывает заявитель
+        RIDE = "ride", _("Поездка")  # по заявкам на машину: офис, БМТС, месторождение
 
     direction = models.CharField(_("направление"), max_length=10, choices=Direction.choices)
     request = models.ForeignKey(
@@ -217,6 +218,10 @@ class Trip(models.Model):
         return self.direction == self.Direction.CARGO
 
     @property
+    def is_ride(self):
+        return self.direction == self.Direction.RIDE
+
+    @property
     def is_marked(self):
         return bool(self.entered_at or self.exited_at)
 
@@ -234,7 +239,7 @@ class Trip(models.Model):
 
     def passengers(self):
         """Пассажиры рейса без отменённых."""
-        if self.is_cargo:
+        if self.is_cargo or self.is_ride:
             return Visitor.objects.none()
         related = self.arrivals if self.is_in else self.departures
         return related.active().select_related("organization", "request")
@@ -609,3 +614,155 @@ class EntryBan(models.Model):
     def clean(self):
         if not (self.doc_number or "").strip() and not (self.vehicle_plate or "").strip():
             raise ValidationError(_("Укажите ИИН/документ или госномер — по ним КПП и согласование найдут совпадение."))
+
+
+class Point(models.Model):
+    """Точка маршрута для заявок на машину: офис в Актау, склад БМТС, месторождение."""
+
+    name = models.CharField(_("название"), max_length=100, unique=True)
+    address = models.CharField(_("адрес / место подачи"), max_length=300, blank=True,
+                               help_text=_("Где машина забирает людей, например: у главного входа."))
+    is_guarded = models.BooleanField(
+        _("охраняемая территория"), default=False,
+        help_text=_("Въезд через КПП: поездка сюда согласуется начальником штаба безопасности."),
+    )
+    is_active = models.BooleanField(_("активна"), default=True)
+    order = models.PositiveSmallIntegerField(_("порядок"), default=0)
+
+    class Meta:
+        verbose_name = _("точка маршрута")
+        verbose_name_plural = _("точки маршрута")
+        ordering = ["order", "name"]
+
+    def __str__(self):
+        return self.name
+
+
+class RideQuerySet(models.QuerySet):
+    def for_dispatcher(self):
+        """Ждут или уже получили машину: согласование не нужно или пройдено."""
+        A = RideRequest.Approval
+        return self.filter(approval__in=[A.NOT_NEEDED, A.APPROVED],
+                           status__in=[RideRequest.Status.NEW, RideRequest.Status.ASSIGNED])
+
+
+class RideRequest(models.Model):
+    """Заявка на машину: любой сотрудник просит отвезти людей или груз из точки в точку.
+    Если едут на охраняемую территорию (месторождение) — сначала согласует начальник штаба,
+    после назначения машины её видит КПП."""
+
+    class Approval(models.TextChoices):
+        NOT_NEEDED = "not_needed", _("Не требуется")
+        PENDING = "pending", _("На согласовании")
+        APPROVED = "approved", _("Согласована")
+        REJECTED = "rejected", _("Отклонена")
+
+    class Status(models.TextChoices):
+        NEW = "new", _("Ждёт машину")
+        ASSIGNED = "assigned", _("Машина назначена")
+        DONE = "done", _("Выполнена")
+        REFUSED = "refused", _("Отказано диспетчером")
+        CANCELLED = "cancelled", _("Отменена")
+
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name=_("автор"), on_delete=models.PROTECT,
+                               related_name="rides")
+    from_point = models.ForeignKey(Point, verbose_name=_("откуда"), null=True, blank=True, on_delete=models.PROTECT,
+                                   related_name="+")
+    from_address = models.CharField(_("откуда (адрес)"), max_length=300, blank=True)
+    to_point = models.ForeignKey(Point, verbose_name=_("куда"), null=True, blank=True, on_delete=models.PROTECT,
+                                 related_name="+")
+    to_address = models.CharField(_("куда (адрес)"), max_length=300, blank=True)
+    date = models.DateField(_("дата"), db_index=True)
+    time = models.TimeField(_("время подачи"), null=True, blank=True)
+    cargo = models.TextField(_("груз"), blank=True, help_text=_("Что везём, если есть: материалы, оборудование."))
+    contact_phone = models.CharField(_("контактный телефон"), max_length=50)
+    comment = models.TextField(_("комментарий"), blank=True)
+
+    approval = models.CharField(_("согласование"), max_length=20, choices=Approval.choices,
+                                default=Approval.NOT_NEEDED, db_index=True)
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name=_("решение принял"), null=True, blank=True,
+                                    on_delete=models.SET_NULL, related_name="+")
+    approved_at = models.DateTimeField(_("время решения"), null=True, blank=True)
+    status = models.CharField(_("статус"), max_length=20, choices=Status.choices, default=Status.NEW, db_index=True)
+    reason = models.TextField(_("причина отказа"), blank=True)
+    trip = models.ForeignKey(Trip, verbose_name=_("машина"), null=True, blank=True, on_delete=models.SET_NULL,
+                             related_name="rides")
+    return_of = models.OneToOneField("self", verbose_name=_("обратная поездка к"), null=True, blank=True,
+                                     on_delete=models.CASCADE, related_name="return_leg")
+    created_at = models.DateTimeField(_("создана"), auto_now_add=True)
+    updated_at = models.DateTimeField(_("изменена"), auto_now=True)
+
+    objects = RideQuerySet.as_manager()
+
+    class Meta:
+        verbose_name = _("заявка на машину")
+        verbose_name_plural = _("заявки на машину")
+        ordering = ["-date", "-time", "-pk"]
+
+    def __str__(self):
+        return f"Поездка №{self.number}"
+
+    @property
+    def number(self):
+        return f"{self.pk:05d}" if self.pk else ""
+
+    @property
+    def from_display(self):
+        return str(self.from_point) if self.from_point_id else self.from_address
+
+    @property
+    def to_display(self):
+        return str(self.to_point) if self.to_point_id else self.to_address
+
+    @property
+    def route(self):
+        return f"{self.from_display} → {self.to_display}"
+
+    @property
+    def pickup_place(self):
+        """Где подать машину: адрес точки или введённый адрес."""
+        if self.from_point_id:
+            return ", ".join(p for p in (self.from_point.name, self.from_point.address) if p)
+        return self.from_address
+
+    @property
+    def to_guarded(self):
+        return bool(self.to_point_id and self.to_point.is_guarded)
+
+    @property
+    def touches_guarded(self):
+        """Машина въезжает на охраняемую территорию (везёт туда или забирает оттуда) — её видит КПП."""
+        return self.to_guarded or bool(self.from_point_id and self.from_point.is_guarded)
+
+    @property
+    def is_open(self):
+        return self.status in (self.Status.NEW, self.Status.ASSIGNED) and self.approval != self.Approval.REJECTED
+
+    @property
+    def state_label(self):
+        if self.approval in (self.Approval.PENDING, self.Approval.REJECTED):
+            return self.get_approval_display()
+        return self.get_status_display()
+
+    @property
+    def state_key(self):
+        if self.approval in (self.Approval.PENDING, self.Approval.REJECTED):
+            return self.approval
+        return {"new": "overdue", "assigned": "trip-in", "done": "departed", "refused": "rejected",
+                "cancelled": "cancelled"}[self.status]
+
+
+class RidePassenger(models.Model):
+    ride = models.ForeignKey(RideRequest, verbose_name=_("поездка"), on_delete=models.CASCADE,
+                             related_name="passengers")
+    full_name = models.CharField(_("ФИО"), max_length=200)
+    doc_number = models.CharField(_("ИИН / документ"), max_length=50, blank=True)
+    vehicle_plate = ""  # для сверки с запретом въезда (у пассажира машины нет)
+
+    class Meta:
+        verbose_name = _("пассажир")
+        verbose_name_plural = _("пассажиры")
+        ordering = ["pk"]
+
+    def __str__(self):
+        return self.full_name

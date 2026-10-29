@@ -1,0 +1,9 @@
+{% load i18n %}<tr class="clickable{% if not r.is_open %} st-cancelled{% endif %}" onclick="location.href='{% url 'ride_detail' r.pk %}'">
+  <td data-label="{% translate '№' %}" class="nowrap"><a href="{% url 'ride_detail' r.pk %}">{{ r.number }}</a></td>
+  <td><b>{{ r.route }}</b>{% if r.return_of_id %} <span class="muted small">({% translate "обратно" %})</span>{% endif %}
+    <div class="small muted">{% for p in r.passengers.all %}{{ p.full_name }}{% if not forloop.last %}, {% endif %}{% empty %}{% translate "только груз" %}{% endfor %}{% if r.cargo %} · {% translate "груз" %}{% endif %}</div></td>
+  <td data-label="{% translate 'Когда' %}" class="nowrap">{{ r.date|date:"d.m" }}{% if r.time %} {{ r.time|time:"H:i" }}{% endif %}</td>
+  {% if show_author %}<td data-label="{% translate 'Заявитель' %}" class="small">{{ r.author }}<br><a href="tel:{{ r.contact_phone }}">{{ r.contact_phone }}</a></td>{% endif %}
+  <td data-label="{% translate 'Статус' %}"><span class="badge badge-{{ r.state_key }}">{{ r.state_label }}</span>
+    {% if r.trip %}<div class="small"><span class="plate">{{ r.trip.vehicle_plate }}</span>{% if r.trip.time %} {{ r.trip.time|time:"H:i" }}{% endif %}</div>{% endif %}</td>
+</tr>

@@ -24,6 +24,10 @@
   </div>
 </form>
 
+{% if trip.is_ride %}
+<h2>{% translate "Поездки в машине" %} ({{ ride_list|length }})</h2>
+<ul class="file-list">{% for r in ride_list %}<li><a href="{% url 'ride_detail' r.pk %}">№{{ r.number }} · {{ r.route }}</a> <span class="muted small">{{ r.author }}</span></li>{% empty %}<li class="muted">{% translate "Поездок нет" %}</li>{% endfor %}</ul>
+{% else %}
 <h2>{% translate "Пассажиры" %} ({{ people|length }})</h2>
 {% if people %}
 <div class="table-wrap"><table class="stack">
@@ -40,6 +44,7 @@
   </tr>{% endfor %}</tbody>
 </table></div>
 {% else %}<div class="empty">{% translate "В машине никого нет. Добавьте людей на странице «Транспорт» или удалите рейс." %}</div>{% endif %}
+{% endif %}
 
 {% if not trip.is_marked %}
 <form method="post" action="{% url 'trip_delete' trip.pk %}" class="mt" onsubmit="return confirm('{% translate "Удалить рейс? Люди снова будут без машины." %}')">{% csrf_token %}

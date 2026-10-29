@@ -24,8 +24,14 @@
     <span><span class="k">{% translate "Отв." %}:</span> {{ t.request.contact_name }} <a href="tel:{{ t.request.contact_phone }}">{{ t.request.contact_phone }}</a></span>
   </div>
   {% endif %}
+  {% if t.is_ride %}
+  {% for r in t.rides.all %}<div class="small"><span class="muted">{% translate "Поездка" %} №{{ r.number }}:</span> <b>{{ r.route }}</b></div>{% endfor %}
+  <div class="small"><span class="muted">{% translate "Едут" %} ({{ t.ride_people|length }}):</span>
+    {% for p in t.ride_people %}{{ p.full_name }}{% if show_docs and p.doc_number %} <span class="muted">({{ p.doc_number }})</span>{% endif %}{% if p.ban %} <span class="ban-text">⛔ {{ p.ban.reason }}</span>{% endif %}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</div>
+  {% if t.cargo %}<div class="cargo-text"><span class="muted small">{% translate "Груз" %}:</span> <b>{{ t.cargo }}</b></div>{% endif %}
+  {% endif %}
   {% with people=t.passengers %}
-  {% if not t.is_cargo %}<div class="small"><span class="muted">{% if t.is_in %}{% translate "Привозит" %}{% else %}{% translate "Забирает" %}{% endif %} ({{ people|length }}):</span>
+  {% if not t.is_cargo and not t.is_ride %}<div class="small"><span class="muted">{% if t.is_in %}{% translate "Привозит" %}{% else %}{% translate "Забирает" %}{% endif %} ({{ people|length }}):</span>
     {% for v in people %}{{ v.full_name }}{% if v.status == "arrived" and t.is_in %} ✓{% endif %}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</div>{% endif %}
   <div class="person-actions">
     {% if not t.entered_at %}

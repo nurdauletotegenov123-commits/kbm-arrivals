@@ -12,13 +12,16 @@
 <div class="stats">
   <a class="stat{% if counts.today_in %} warn{% endif %}" href="?tab=in"><b>{{ counts.today_in }}</b><span>{% translate "сегодня без машины на привоз" %}</span></a>
   <a class="stat{% if counts.today_out %} warn{% endif %}" href="?tab=out"><b>{{ counts.today_out }}</b><span>{% translate "сегодня без машины на вывоз" %}</span></a>
+  <a class="stat{% if counts.today_ride %} warn{% endif %}" href="?tab=ride"><b>{{ counts.today_ride }}</b><span>{% translate "сегодня поездок без машины" %}</span></a>
   <a class="stat" href="?tab=in&days={{ days }}"><b>{{ counts.in }}</b><span>{% blocktranslate %}ждут привоза за {{ days }} дн.{% endblocktranslate %}</span></a>
   <a class="stat" href="?tab=out&days={{ days }}"><b>{{ counts.out }}</b><span>{% blocktranslate %}ждут вывоза за {{ days }} дн.{% endblocktranslate %}</span></a>
+  <a class="stat" href="?tab=ride&days={{ days }}"><b>{{ counts.ride }}</b><span>{% blocktranslate %}поездок без машины за {{ days }} дн.{% endblocktranslate %}</span></a>
 </div>
 
 <nav class="tabs">
   <a href="?tab=in&days={{ days }}" class="{% if tab == 'in' %}active{% endif %}">{% translate "Привоз" %}{% if counts.in %}<span class="count warn">{{ counts.in }}</span>{% endif %}</a>
   <a href="?tab=out&days={{ days }}" class="{% if tab == 'out' %}active{% endif %}">{% translate "Вывоз" %}{% if counts.out %}<span class="count warn">{{ counts.out }}</span>{% endif %}</a>
+  <a href="?tab=ride&days={{ days }}" class="{% if tab == 'ride' %}active{% endif %}">{% translate "Поездки" %}{% if counts.ride %}<span class="count warn">{{ counts.ride }}</span>{% endif %}</a>
 </nav>
 
 {% for g in groups %}
@@ -34,6 +37,22 @@
     <input type="hidden" name="direction" value="{{ tab }}">
     <input type="hidden" name="date" value="{{ g.date|date:'Y-m-d' }}">
     <input type="hidden" name="days" value="{{ days }}">
+    {% if tab == 'ride' %}
+    <div class="table-wrap assign-people"><table>
+      <thead><tr>
+        <th style="width:1%"><input type="checkbox" data-all aria-label="{% translate 'Выбрать все' %}"></th>
+        <th>{% translate "Маршрут" %}</th><th>{% translate "Время" %}</th><th>{% translate "Кто и что" %}</th><th>{% translate "Заявитель" %}</th>
+      </tr></thead>
+      <tbody>{% for r in g.waiting %}<tr>
+        <td><input type="checkbox" name="ride" value="{{ r.pk }}" aria-label="{{ r.route }}"></td>
+        <td><a href="{% url 'ride_detail' r.pk %}"><b>{{ r.route }}</b></a><div class="small muted">№{{ r.number }}{% if r.approval == "approved" %} · {% translate "согласована СБ" %}{% endif %}</div></td>
+        <td class="nowrap">{{ r.time|time:"H:i"|default:"—" }}</td>
+        <td class="small">{% with n=r.passengers.all|length %}{% if n %}{{ n }} {% translate "чел." %}: {% for p in r.passengers.all %}{{ p.full_name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}{% endwith %}
+          {% if r.cargo %}<div><span class="badge badge-trip-cargo">{% translate "груз" %}</span> {{ r.cargo|truncatechars:80 }}</div>{% endif %}</td>
+        <td class="small">{{ r.author }}<br><a href="tel:{{ r.contact_phone }}">{{ r.contact_phone }}</a></td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}
     <div class="table-wrap assign-people"><table>
       <thead><tr>
         <th style="width:1%"><input type="checkbox" checked data-all aria-label="{% translate 'Выбрать всех' %}"></th>
@@ -49,6 +68,7 @@
         <td class="small">{{ v.request.contact_name }}<br><a href="tel:{{ v.request.contact_phone }}">{{ v.request.contact_phone }}</a></td>
       </tr>{% endfor %}</tbody>
     </table></div>
+    {% endif %}
 
     <div class="assign-box">
       {% if g.open_trips %}
@@ -70,7 +90,7 @@
         <div class="field assign-place"><label>{% translate "Место подачи" %}<input type="text" name="new-pickup_place" list="places" placeholder="{% if tab == 'in' %}{% translate 'Например: у главного входа в офис' %}{% else %}{% translate 'Например: кэмп, корпус 2' %}{% endif %}"></label></div>
         <div class="field"><label>{% translate "Комментарий" %}<input type="text" name="new-comment"></label></div>
       </div>
-      <button class="btn btn-primary btn-big" type="submit">{% if tab == 'in' %}{% translate "Назначить машину на привоз" %}{% else %}{% translate "Назначить машину на вывоз" %}{% endif %}</button>
+      <button class="btn btn-primary btn-big" type="submit">{% if tab == 'in' %}{% translate "Назначить машину на привоз" %}{% elif tab == 'ride' %}{% translate "Назначить машину на поездки" %}{% else %}{% translate "Назначить машину на вывоз" %}{% endif %}</button>
     </div>
   </form>
   {% endif %}
@@ -91,7 +111,12 @@
       </div>
       {% if t.pickup_place %}<div class="person-meta"><span class="k">{% translate "Место подачи" %}:</span> {{ t.pickup_place }}</div>{% endif %}
       {% if t.comment %}<div class="small muted">💬 {{ t.comment }}</div>{% endif %}
+      {% if tab == 'ride' %}
+      <ol class="passengers">{% for r in t.ride_list %}<li><a href="{% url 'ride_detail' r.pk %}">№{{ r.number }}</a> {{ r.route }}{% if r.time %} · {{ r.time|time:"H:i" }}{% endif %} <span class="muted small">{% for p in r.passengers.all %}{{ p.full_name }}{% if not forloop.last %}, {% endif %}{% empty %}{% translate "груз" %}{% endfor %}</span></li>{% empty %}<li class="muted">{% translate "Поездок нет" %}</li>{% endfor %}</ol>
+      {% if t.cargo %}<div class="small"><span class="muted">{% translate "Груз" %}:</span> {{ t.cargo }}</div>{% endif %}
+      {% else %}
       <ol class="passengers">{% for v in t.people %}<li>{{ v.full_name }} <span class="muted small">{{ v.organization }}</span></li>{% empty %}<li class="muted">{% translate "Пассажиров нет" %}</li>{% endfor %}</ol>
+      {% endif %}
       <div class="person-actions">
         <a class="btn" href="{% url 'trip_edit' t.pk %}">{% translate "Изменить рейс" %}</a>
       </div>
@@ -100,7 +125,7 @@
   </div>
   {% endif %}
 {% empty %}
-  <div class="empty">{% if tab == 'in' %}{% blocktranslate %}На {{ days }} дн. вперёд привоз никому не нужен или уже назначен.{% endblocktranslate %}{% else %}{% blocktranslate %}На {{ days }} дн. вперёд вывоз никому не нужен или уже назначен.{% endblocktranslate %}{% endif %}</div>
+  <div class="empty">{% if tab == 'ride' %}{% blocktranslate %}На {{ days }} дн. вперёд заявок на машину нет или машины уже назначены.{% endblocktranslate %}{% elif tab == 'in' %}{% blocktranslate %}На {{ days }} дн. вперёд привоз никому не нужен или уже назначен.{% endblocktranslate %}{% else %}{% blocktranslate %}На {{ days }} дн. вперёд вывоз никому не нужен или уже назначен.{% endblocktranslate %}{% endif %}</div>
 {% endfor %}
 <datalist id="places">{% for p in places %}<option value="{{ p }}">{% endfor %}</datalist>
 {% endblock %}
@@ -109,7 +134,7 @@
   // «Выбрать всех» и выбор существующей машины вместо новой
   document.querySelectorAll("[data-assign]").forEach((form) => {
     const all = form.querySelector("[data-all]");
-    const boxes = form.querySelectorAll("input[name=visitor]");
+    const boxes = form.querySelectorAll("input[name=visitor], input[name=ride]");
     all.addEventListener("change", () => boxes.forEach((b) => (b.checked = all.checked)));
     const pick = form.querySelector("[data-pick]");
     const fresh = form.querySelector("[data-new]");

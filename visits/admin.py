@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Organization, Request, Trip, Visitor
+from .models import Organization, Point, Request, Trip, Visitor
 
 
 @admin.register(Organization)
@@ -39,3 +39,9 @@ class TripAdmin(admin.ModelAdmin):
     list_display = ("date", "direction", "vehicle_plate", "vehicle_make", "driver_name", "entered_at", "exited_at")
     list_filter = ("direction", "date")
     search_fields = ("vehicle_plate", "driver_name")
+
+
+@admin.register(Point)
+class PointAdmin(admin.ModelAdmin):
+    list_display = ("name", "address", "is_guarded", "is_active", "order")
+    list_editable = ("address", "is_guarded", "is_active", "order")

@@ -12,15 +12,24 @@ from django.views.decorators.http import require_POST
 
 from accounts.decorators import role_required
 
-from .. import services
+from .. import rides, services
 from ..forms import TripForm
-from ..models import Trip, Visitor
+from ..models import RidePassenger, RideRequest, Trip, Visitor
 from .common import R
 
 S = Visitor.Status
 D = Trip.Direction
 HORIZONS = (3, 7, 14)
-DISPATCH_TRIPS = Trip.objects.filter(direction__in=[D.IN, D.OUT])  # машины с грузом указывает заявитель
+DISPATCH_TRIPS = Trip.objects.filter(direction__in=[D.IN, D.OUT, D.RIDE])  # машины с грузом указывает заявитель
+
+
+def _ride_qs():
+    return RideRequest.objects.for_dispatcher().select_related("author", "from_point", "to_point").prefetch_related(
+        Prefetch("passengers", queryset=RidePassenger.objects.all()))
+
+
+def _waiting_rides(d1, d2):
+    return _ride_qs().filter(status=RideRequest.Status.NEW, date__range=(d1, d2)).order_by("date", "time", "pk")
 
 
 def _waiting(direction, d1, d2):
@@ -42,10 +51,13 @@ def _trips(direction, d1, d2):
 @role_required(R.DISPATCHER)
 def dispatch(request):
     today = timezone.localdate()
-    direction = D.OUT if request.GET.get("tab") == "out" else D.IN
+    tab = request.GET.get("tab")
+    direction = D.OUT if tab == "out" else D.RIDE if tab == "ride" else D.IN
     days = request.GET.get("days", "7")
     days = int(days) if days.isdigit() and int(days) in HORIZONS else 7
     d1, d2 = today, today + timedelta(days=days)
+    if direction == D.RIDE:
+        return _dispatch_rides(request, today, days, d1, d2)
 
     waiting = list(_waiting(direction, d1, d2))
     trips = list(_trips(direction, d1, d2))
@@ -59,24 +71,51 @@ def dispatch(request):
         "open_trips": [t for t in trips if t.date == day and not t.exited_at and not (t.is_in and t.entered_at)],
     } for day in dates]
 
-    counts = {
+    return render(request, "visits/dispatch.html", {
+        "tab": direction, "days": days, "horizons": HORIZONS, "groups": groups,
+        "counts": _counts(today, d1, d2), "today": today, "form": TripForm(prefix="new"), "places": _places(),
+    })
+
+
+def _counts(today, d1, d2):
+    return {
         "in": _waiting(D.IN, d1, d2).count(),
         "out": _waiting(D.OUT, d1, d2).count(),
+        "ride": _waiting_rides(d1, d2).count(),
         "today_in": _waiting(D.IN, today, today).count(),
         "today_out": _waiting(D.OUT, today, today).count(),
+        "today_ride": _waiting_rides(today, today).count(),
     }
+
+
+def _places():
+    """Подсказки для «Места подачи» — адреса, которые диспетчер уже вводил."""
+    return list(dict.fromkeys(
+        Trip.objects.exclude(pickup_place="").order_by("-pk").values_list("pickup_place", flat=True)[:200]
+    ))[:30]
+
+
+def _dispatch_rides(request, today, days, d1, d2):
+    """Вкладка «Поездки»: заявки на машину по датам, кому ещё не дали машину, и уже назначенные машины."""
+    waiting = list(_waiting_rides(d1, d2))
+    trips = list(Trip.objects.filter(direction=D.RIDE, date__range=(d1, d2))
+                 .prefetch_related(Prefetch("rides", queryset=_ride_qs(), to_attr="ride_list")))
+    dates = sorted({r.date for r in waiting} | {t.date for t in trips})
+    groups = [{
+        "date": day,
+        "waiting": [r for r in waiting if r.date == day],
+        "trips": [t for t in trips if t.date == day],
+        "open_trips": [t for t in trips if t.date == day and not t.exited_at],
+    } for day in dates]
     return render(request, "visits/dispatch.html", {
-        "tab": direction, "days": days, "horizons": HORIZONS, "groups": groups, "counts": counts,
-        "today": today, "form": TripForm(prefix="new"),
-        # подсказки для «Места подачи» — адреса, которые диспетчер уже вводил
-        "places": list(dict.fromkeys(
-            Trip.objects.exclude(pickup_place="").order_by("-pk").values_list("pickup_place", flat=True)[:200]
-        ))[:30],
+        "tab": D.RIDE, "days": days, "horizons": HORIZONS, "groups": groups,
+        "counts": _counts(today, d1, d2), "today": today, "form": TripForm(prefix="new"), "places": _places(),
     })
 
 
 def _back(request, trip=None):
-    tab = "out" if (trip and not trip.is_in) or request.POST.get("direction") == D.OUT else "in"
+    direction = trip.direction if trip else request.POST.get("direction")
+    tab = direction if direction in (D.OUT, D.RIDE) else "in"
     url = f"{reverse('dispatch')}?tab={tab}"
     if request.POST.get("days"):
         url += f"&days={request.POST['days']}"
@@ -88,13 +127,15 @@ def _back(request, trip=None):
 def dispatch_assign(request):
     direction = request.POST.get("direction")
     day = parse_date(request.POST.get("date") or "")
-    ids = [int(i) for i in request.POST.getlist("visitor") if i.isdigit()]
-    if direction not in D.values or not day:
+    ids = [int(i) for i in request.POST.getlist("ride" if direction == D.RIDE else "visitor") if i.isdigit()]
+    if direction not in (D.IN, D.OUT, D.RIDE) or not day:
         messages.error(request, _("Не удалось определить дату рейса. Обновите страницу."))
         return _back(request)
     if not ids:
         messages.warning(request, _("Отметьте галочками, кого посадить в машину."))
         return _back(request)
+    if direction == D.RIDE:
+        return _assign_rides(request, day, ids)
 
     trip_id = request.POST.get("trip")
     if trip_id:
@@ -115,6 +156,26 @@ def dispatch_assign(request):
     return _back(request, trip)
 
 
+def _assign_rides(request, day, ids):
+    trip_id = request.POST.get("trip")
+    if trip_id:
+        trip = get_object_or_404(Trip, pk=trip_id, direction=D.RIDE, date=day)
+    else:
+        form = TripForm(request.POST, prefix="new", instance=Trip(direction=D.RIDE, date=day))
+        if not form.is_valid():
+            errors = "; ".join(f"{form.fields[f].label}: {' '.join(e)}" for f, e in form.errors.items())
+            messages.error(request, _("Машина не назначена — %(e)s") % {"e": errors})
+            return _back(request)
+        trip = form.instance
+    try:
+        trip, assigned = rides.assign_rides(trip, ids, request.user, request=request)
+    except services.ActionError as e:
+        messages.warning(request, str(e))
+        return _back(request)
+    messages.success(request, _("%(plate)s: назначено поездок — %(n)s.") % {"plate": trip.vehicle_plate, "n": len(assigned)})
+    return _back(request, trip)
+
+
 @role_required(R.DISPATCHER)
 def trip_edit(request, pk):
     trip = get_object_or_404(DISPATCH_TRIPS, pk=pk)
@@ -124,7 +185,10 @@ def trip_edit(request, pk):
         services.update_trip(form.save(commit=False), before, request.user, request=request)
         messages.success(request, _("Рейс сохранён."))
         return _back(request, trip)
-    return render(request, "visits/trip_form.html", {"trip": trip, "form": form, "people": list(trip.passengers())})
+    return render(request, "visits/trip_form.html", {
+        "trip": trip, "form": form, "people": list(trip.passengers()),
+        "ride_list": list(trip.rides.select_related("from_point", "to_point", "author")) if trip.is_ride else [],
+    })
 
 
 @require_POST

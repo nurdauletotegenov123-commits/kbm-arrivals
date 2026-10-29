@@ -787,3 +787,107 @@ class DateChangeTests(Base):
         v = self.edit(v, departure_date=(v.departure_date + timedelta(days=2)).isoformat())
         self.assertIsNone(v.date_change)
         self.assertEqual(len(mail.outbox), 0)
+
+
+@override_settings(NOTIFICATIONS_ENABLED=True, EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class RideTests(Base):
+    def setUp(self):
+        super().setUp()
+        from .models import Point
+        self.office = Point.objects.get(name="Офис Актау")
+        self.bmts = Point.objects.get(name="БМТС (склад)")
+        self.field = Point.objects.get(name="Месторождение")
+        self.chief = make_user("chief", R.CHIEF)
+        for u, addr in ((self.chief, "chief@kbm.kz"), (self.dispatcher, "disp@kbm.kz"), (self.applicant, "app@kbm.kz")):
+            u.email = addr
+            u.save()
+
+    def order(self, frm, to, **kw):
+        data = {"from_point": frm.pk if frm else "", "to_point": to.pk if to else "", "date": self.today.isoformat(),
+                "time": "10:00", "passengers": "Иванов Иван", "contact_phone": "+7 701 000 00 00"}
+        data.update(kw)
+        self.login(self.applicant)
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(reverse("ride_create"), data, follow=True)
+
+    def assign(self, ride, plate="777KBM12"):
+        self.login(self.dispatcher)
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(reverse("dispatch_assign"), {
+                "direction": "ride", "date": ride.date.isoformat(), "ride": [ride.pk],
+                "new-vehicle_make": "Toyota Hilux", "new-vehicle_plate": plate, "new-driver_name": "Ахметов"},
+                follow=True)
+
+    def test_city_ride_goes_straight_to_dispatcher(self):
+        from .models import RideRequest
+        self.order(self.bmts, self.office, with_return="on", return_time="17:00")
+        there, back = RideRequest.objects.order_by("pk")
+        self.assertEqual((there.approval, back.return_of), (RideRequest.Approval.NOT_NEEDED, there))
+        self.assertEqual(back.route, "Офис Актау → БМТС (склад)")
+        self.assertEqual([m.to for m in mail.outbox], [["disp@kbm.kz"], ["disp@kbm.kz"]])  # начальнику — нет
+        mail.outbox.clear()
+        self.login(self.dispatcher)
+        self.assertContains(self.client.get(reverse("dispatch"), {"tab": "ride"}), "БМТС (склад) → Офис Актау")
+        self.assign(there)
+        there.refresh_from_db()
+        self.assertEqual(there.status, RideRequest.Status.ASSIGNED)
+        self.assertEqual(there.trip.pickup_place, "БМТС (склад)")
+        self.assertIn("777KBM12", [m for m in mail.outbox if m.to == ["app@kbm.kz"]][0].body)
+        self.login(self.security)  # по городу КПП машину не видит
+        self.assertNotContains(self.client.get(reverse("kpp"), {"tab": "trips"}), "777KBM12")
+
+    def test_field_ride_needs_iin_and_chief(self):
+        from .models import RideRequest
+        resp = self.order(self.bmts, self.field)
+        self.assertContains(resp, "укажите ИИН")
+        self.order(self.bmts, self.field, passengers="Иванов Иван, 900101300123", cargo="Кабель 2 бухты")
+        ride = RideRequest.objects.get()
+        self.assertEqual(ride.approval, RideRequest.Approval.PENDING)
+        self.assertEqual([m.to for m in mail.outbox], [["chief@kbm.kz"]])
+        self.login(self.dispatcher)
+        self.assertNotContains(self.client.get(reverse("dispatch"), {"tab": "ride"}), "№" + ride.number)
+        self.login(self.chief)
+        self.assertContains(self.client.get(reverse("approval_list"), {"tab": "rides"}), "БМТС (склад) → Месторождение")
+        self.assertContains(self.client.get(reverse("ride_detail", args=[ride.pk])), "900101300123")
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("ride_action", args=[ride.pk, "approve"]))
+        ride.refresh_from_db()
+        self.assertEqual(ride.approval, RideRequest.Approval.APPROVED)
+        self.assign(ride, plate="555FLD12")
+        self.login(self.security)
+        resp = self.client.get(reverse("kpp"), {"tab": "trips"})
+        self.assertContains(resp, "555FLD12")
+        self.assertContains(resp, "Кабель 2 бухты")
+        self.assertContains(resp, "900101300123")
+        self.login(self.dispatcher)  # диспетчеру ИИН не показываем
+        self.assertNotContains(self.client.get(reverse("ride_detail", args=[ride.pk])), "900101300123")
+
+    def test_cancel_refuse_and_permissions(self):
+        from .models import RideRequest
+        self.order(self.office, None, to_address="Аэропорт Актау")
+        ride = RideRequest.objects.get()
+        self.login(self.other)
+        self.assertEqual(self.client.get(reverse("ride_detail", args=[ride.pk])).status_code, 403)
+        self.assertEqual(self.client.post(reverse("ride_action", args=[ride.pk, "refuse"]), {"reason": "x"}).status_code, 403)
+        self.login(self.dispatcher)
+        self.client.post(reverse("ride_action", args=[ride.pk, "refuse"]), {"reason": ""})
+        ride.refresh_from_db()
+        self.assertEqual(ride.status, RideRequest.Status.NEW)  # без причины не отказать
+        self.client.post(reverse("ride_action", args=[ride.pk, "refuse"]), {"reason": "Все машины в рейсе"})
+        ride.refresh_from_db()
+        self.assertEqual(ride.status, RideRequest.Status.REFUSED)
+        self.order(self.office, self.bmts)
+        second = RideRequest.objects.latest("pk")
+        self.client.post(reverse("ride_action", args=[second.pk, "cancel"]))
+        second.refresh_from_db()
+        self.assertEqual(second.status, RideRequest.Status.CANCELLED)
+
+    def test_deleting_trip_returns_rides_to_queue(self):
+        from .models import RideRequest
+        self.order(self.office, self.bmts)
+        ride = RideRequest.objects.get()
+        self.assign(ride)
+        ride.refresh_from_db()
+        self.client.post(reverse("trip_delete", args=[ride.trip_id]))
+        ride.refresh_from_db()
+        self.assertEqual((ride.status, ride.trip_id), (RideRequest.Status.NEW, None))

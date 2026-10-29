@@ -11,6 +11,7 @@ from accounts.decorators import role_required
 from .. import bans, services
 from ..forms import RejectForm
 from ..models import Request, Visitor
+from .rides import pending_rides, recent_decided_rides
 from ..notifications import notify_request
 from .common import R
 from .requests import _requests_qs
@@ -22,10 +23,16 @@ TABS = {"pending": P.PENDING, "approved": P.APPROVED, "rejected": P.REJECTED}
 @role_required(R.CHIEF)
 def approval_list(request):
     tab = request.GET.get("tab", "pending")
-    tab = tab if tab in TABS else "pending"
-    q = request.GET.get("q", "").strip()
     base = _requests_qs(request.user).filter(is_cancelled=False)
     counts = {key: base.filter(approval=value).count() for key, value in TABS.items()}
+    counts["rides"] = pending_rides(request.user).count()
+    if tab == "rides":
+        return render(request, "visits/approval_list.html", {
+            "tab": tab, "counts": counts, "rides_pending": list(pending_rides(request.user)),
+            "rides_recent": list(recent_decided_rides()),
+        })
+    tab = tab if tab in TABS else "pending"
+    q = request.GET.get("q", "").strip()
     qs = base.filter(approval=TABS[tab])
     # на согласовании — сначала самые старые, остальное — последние решения сверху
     qs = qs.order_by("created_at") if tab == "pending" else qs.order_by("-approved_at", "-created_at")

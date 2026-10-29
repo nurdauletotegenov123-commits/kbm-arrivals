@@ -1,0 +1,87 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Поездка" %} №{{ ride.number }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% translate "Поездка" %} №{{ ride.number }} <span class="badge badge-{{ ride.state_key }}">{{ ride.state_label }}</span></h1>
+  <div class="btn-row">
+    {% if can_cancel %}<form method="post" action="{% url 'ride_action' ride.pk 'cancel' %}" onsubmit="return confirm('{% translate "Отменить поездку?" %}')">{% csrf_token %}
+      <button class="btn btn-red" type="submit">{% translate "Отменить поездку" %}</button></form>{% endif %}
+    {% if is_chief %}<a class="btn" href="{% url 'approval_list' %}?tab=rides">{% translate "К согласованию" %}</a>
+    {% elif user.role == "dispatcher" %}<a class="btn" href="{% url 'dispatch' %}?tab=ride">{% translate "К поездкам" %}</a>
+    {% else %}<a class="btn" href="{% url 'ride_list' %}">{% translate "К списку" %}</a>{% endif %}
+  </div>
+</div>
+
+{% if ride.approval == "pending" and not can_decide %}<div class="approval-line pending">{% translate "Ждёт согласования начальником штаба безопасности: поездка на месторождение." %}</div>
+{% elif ride.approval == "rejected" %}<div class="approval-line rejected">{% blocktranslate with who=ride.approved_by|default:"" when=ride.approved_at|date:"d.m.Y H:i" %}Отклонена {{ when }}, {{ who }}{% endblocktranslate %}<span class="reason">{% translate "Причина" %}: {{ ride.reason }}</span></div>
+{% elif ride.status == "refused" %}<div class="approval-line rejected">{% translate "Диспетчер не может дать машину" %}<span class="reason">{% translate "Причина" %}: {{ ride.reason }}</span></div>
+{% elif ride.approval == "approved" %}<div class="approval-line approved">{% blocktranslate with who=ride.approved_by|default:"" when=ride.approved_at|date:"d.m.Y H:i" %}Согласована {{ when }}, {{ who }}{% endblocktranslate %}</div>{% endif %}
+
+{% if has_ban %}<div class="alert-box"><b>⛔ {% translate "Среди пассажиров есть люди из списка запрета въезда" %}</b>
+  <ul>{% for p in people %}{% if p.ban %}<li>{{ p.full_name }} — {{ p.ban.reason }}</li>{% endif %}{% endfor %}</ul></div>{% endif %}
+
+{% if can_decide %}
+<div class="card decision">
+  <h2>{% translate "Решение по поездке на месторождение" %}</h2>
+  <div class="decision-actions">
+    <form method="post" action="{% url 'ride_action' ride.pk 'approve' %}">{% csrf_token %}
+      <button class="btn btn-green btn-big" type="submit">✓ {% translate "Согласовать" %}</button></form>
+    <details><summary class="btn btn-red btn-big">{% translate "Отклонить" %}</summary>
+      <form method="post" action="{% url 'ride_action' ride.pk 'reject' %}">{% csrf_token %}
+        {% include "includes/field.html" with field=reason_form.reason %}
+        <button class="btn btn-red" type="submit">{% translate "Отклонить поездку" %}</button></form></details>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <dl class="props">
+    <dt>{% translate "Маршрут" %}</dt><dd>{{ ride.route }}</dd>
+    <dt>{% translate "Когда" %}</dt><dd>{{ ride.date|date:"d E Y, l" }}{% if ride.time %}, {{ ride.time|time:"H:i" }}{% endif %}</dd>
+    <dt>{% translate "Откуда забрать" %}</dt><dd>{{ ride.pickup_place }}</dd>
+    <dt>{% translate "Кто едет" %}</dt><dd>{% for p in people %}<div>{{ p.full_name }}{% if show_docs and p.doc_number %} <span class="muted">· {{ p.doc_number }}</span>{% endif %}{% if p.ban %} <span class="ban-text">⛔ {{ p.ban.reason }}</span>{% endif %}</div>{% empty %}<span class="muted">{% translate "Только груз" %}</span>{% endfor %}</dd>
+    {% if ride.cargo %}<dt>{% translate "Груз" %}</dt><dd class="cargo-text">{{ ride.cargo }}</dd>{% endif %}
+    <dt>{% translate "Заявитель" %}</dt><dd>{{ ride.author }}, <a href="tel:{{ ride.contact_phone }}">{{ ride.contact_phone }}</a></dd>
+    {% if ride.comment %}<dt>{% translate "Комментарий" %}</dt><dd>{{ ride.comment|linebreaksbr }}</dd>{% endif %}
+    {% if ride.return_of %}<dt>{% translate "Это обратная поездка к" %}</dt><dd><a href="{% url 'ride_detail' ride.return_of_id %}">№{{ ride.return_of.number }}</a></dd>{% endif %}
+    {% if return_leg %}<dt>{% translate "Обратно" %}</dt><dd><a href="{% url 'ride_detail' return_leg.pk %}">№{{ return_leg.number }}</a> · {{ return_leg.date|date:"d.m" }} {{ return_leg.time|time:"H:i" }} · {{ return_leg.state_label }}</dd>{% endif %}
+  </dl>
+</div>
+
+{% if ride.trip %}{% with t=ride.trip %}
+<h2>{% translate "Машина" %}</h2>
+<div class="people"><article class="person trip {{ t.state_class }}">
+  <div class="person-head">
+    <div><div class="person-name"><span class="plate">{{ t.vehicle_plate }}</span> {{ t.vehicle_make }}</div>
+      <div class="person-sub">{% translate "Водитель" %}: {{ t.driver_name }}{% if t.driver_phone %}, <a href="tel:{{ t.driver_phone }}">{{ t.driver_phone }}</a>{% endif %}</div></div>
+    <div class="right">{% if t.time %}<div class="person-time">{{ t.time|time:"H:i" }}</div>{% endif %}</div>
+  </div>
+  {% if t.pickup_place %}<div class="person-meta"><span class="k">{% translate "Место подачи" %}:</span> {{ t.pickup_place }}</div>{% endif %}
+  {% if t.comment %}<div class="small muted">💬 {{ t.comment }}</div>{% endif %}
+</article></div>
+{% endwith %}{% endif %}
+
+{% if can_dispatch %}
+<div class="card">
+  <h2 style="margin-top:0">{% translate "Диспетчер" %}</h2>
+  {% if not ride.trip %}<p class="small muted">{% translate "Машина назначается на вкладке «Поездки»: отметьте поездку и впишите машину." %}</p>{% endif %}
+  <div class="decision-actions">
+    {% if ride.trip %}
+      <form method="post" action="{% url 'ride_action' ride.pk 'done' %}">{% csrf_token %}<button class="btn btn-green" type="submit">✓ {% translate "Выполнена" %}</button></form>
+      <form method="post" action="{% url 'ride_action' ride.pk 'unassign' %}">{% csrf_token %}<button class="btn" type="submit">{% translate "Снять с машины" %}</button></form>
+    {% else %}<a class="btn btn-primary" href="{% url 'dispatch' %}?tab=ride">{% translate "Назначить машину" %}</a>{% endif %}
+    <details><summary class="btn btn-red">{% translate "Нет машины — отказать" %}</summary>
+      <form method="post" action="{% url 'ride_action' ride.pk 'refuse' %}">{% csrf_token %}
+        {% include "includes/field.html" with field=reason_form.reason %}
+        <button class="btn btn-red" type="submit">{% translate "Отказать" %}</button></form></details>
+  </div>
+</div>
+{% endif %}
+
+{% if can_revoke %}
+<details class="card revoke"><summary class="btn btn-sm">{% translate "Отозвать согласование" %}</summary>
+  <form method="post" action="{% url 'ride_action' ride.pk 'reject' %}" style="margin-top:.8rem">{% csrf_token %}
+    {% include "includes/field.html" with field=reason_form.reason %}
+    <button class="btn btn-red" type="submit">{% translate "Отозвать" %}</button></form></details>
+{% endif %}
+{% endblock %}

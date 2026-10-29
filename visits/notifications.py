@@ -260,3 +260,64 @@ def notify_trip(trip, people, event):
         notes.append((author, subject, body))
     if notes:
         transaction.on_commit(lambda: _deliver(notes))
+
+
+# --- заявки на машину ---
+
+RIDE_EVENTS = {
+    "approve": "Поездка согласована",
+    "reject": "Поездка отклонена",
+    "assign": "Назначена машина",
+    "update": "Изменена машина",
+    "unassign": "Машина снята",
+    "refuse": "Машину дать не могут",
+}
+
+
+def _ride_lines(ride):
+    when = ride.date.strftime("%d.%m.%Y") + (f" в {ride.time:%H:%M}" if ride.time else "")
+    people = [p.full_name for p in ride.passengers.all()]
+    lines = [f"Маршрут: {ride.route}", f"Когда: {when}"]
+    if people:
+        lines.append(f"Едут ({len(people)}): " + ", ".join(people))
+    if ride.cargo:
+        lines.append(f"Груз: {ride.cargo}")
+    lines.append(f"Заявитель: {ride.author}, {ride.contact_phone}")
+    if ride.comment:
+        lines.append(f"Комментарий: {ride.comment}")
+    return lines
+
+
+def notify_ride(ride, event, trip=None):
+    """Кому и что: на согласовании — начальнику штаба; ждёт машину — диспетчеру; машина, отказ — заявителю."""
+    if not settings.NOTIFICATIONS_ENABLED:
+        return
+    R = User.Role
+    base = settings.SITE_URL.rstrip("/")
+    detail = base + reverse("ride_detail", args=[ride.pk])
+    notes = []
+    services = []
+    if event == "create" and ride.approval == ride.Approval.PENDING:
+        services.append((R.CHIEF, "Поездка на месторождение на согласование", detail))
+    elif event in ("create", "approve"):
+        services.append((R.DISPATCHER, "Нужна машина", base + reverse("dispatch") + "?tab=ride"))
+    elif event == "cancel":
+        services.append((R.DISPATCHER, "Отменена поездка", base + reverse("dispatch") + "?tab=ride"))
+    for role, title, link in services:
+        body = "\n".join([f"{title}: №{ride.number}", "", *_ride_lines(ride), "", f"Открыть: {link}"])
+        for user in _reachable(User.objects.filter(role=role)):
+            notes.append((user, f"{title}: №{ride.number}, {ride.date:%d.%m}", body))
+
+    author = ride.author
+    if event in RIDE_EVENTS and _can_reach(author):
+        lines = [f"{RIDE_EVENTS[event]}: поездка №{ride.number}", f"{ride.route}, {ride.date:%d.%m.%Y}", ""]
+        if event in ("assign", "update") and ride.trip_id:
+            lines += trip_text(ride.trip)
+        elif event == "unassign":
+            lines.append("Диспетчер снял машину — назначит другую и сообщит.")
+        elif event in ("reject", "refuse"):
+            lines.append(f"Причина: {ride.reason}")
+        lines += ["", f"Открыть: {detail}"]
+        notes.append((author, f"{RIDE_EVENTS[event]}: поездка №{ride.number}", "\n".join(lines)))
+    if notes:
+        transaction.on_commit(lambda: _deliver(notes))

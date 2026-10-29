@@ -1,0 +1,51 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Заказать машину" %}{% endblock %}
+{% block content %}
+<div class="page-head"><h1>{% translate "Заказать машину" %}</h1>
+  <a class="btn" href="{% url 'ride_list' %}">{% translate "Назад" %}</a></div>
+<form method="post" class="card" style="max-width:820px" novalidate>
+  {% csrf_token %}
+  {% include "includes/form_errors.html" %}
+  <div class="grid-2">
+    <div>{% include "includes/field.html" with field=form.from_point %}
+      <div data-other="from_point">{% include "includes/field.html" with field=form.from_address %}</div></div>
+    <div>{% include "includes/field.html" with field=form.to_point %}
+      <div data-other="to_point">{% include "includes/field.html" with field=form.to_address %}</div></div>
+    {% include "includes/field.html" with field=form.date %}
+    {% include "includes/field.html" with field=form.time %}
+  </div>
+  <div class="warn-line hidden" id="guarded-note">{% translate "Поездка на месторождение: заявку сначала согласует начальник штаба безопасности, укажите ИИН каждого, кто едет." %}</div>
+  {% include "includes/field.html" with field=form.passengers %}
+  {% include "includes/field.html" with field=form.cargo %}
+  {% include "includes/check.html" with field=form.with_return %}
+  <div class="grid-2" id="return-fields">
+    {% include "includes/field.html" with field=form.return_date %}
+    {% include "includes/field.html" with field=form.return_time %}
+  </div>
+  <div class="grid-2">
+    {% include "includes/field.html" with field=form.contact_phone %}
+    {% include "includes/field.html" with field=form.comment %}
+  </div>
+  <div class="btn-row"><button class="btn btn-primary btn-big" type="submit">{% translate "Отправить заявку" %}</button></div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+  (function () {
+    const guarded = new Set([{% for p in form.fields.to_point.queryset %}{% if p.is_guarded %}"{{ p.pk }}",{% endif %}{% endfor %}]);
+    const sel = (n) => document.getElementById("id_" + n);
+    // «Другой адрес…» — показать поле адреса
+    document.querySelectorAll("[data-other]").forEach((box) => {
+      const s = sel(box.dataset.other);
+      const sync = () => box.classList.toggle("hidden", !!s.value);
+      s.addEventListener("change", sync); sync();
+    });
+    const to = sel("to_point"), note = document.getElementById("guarded-note");
+    const syncNote = () => note.classList.toggle("hidden", !guarded.has(to.value));
+    to.addEventListener("change", syncNote); syncNote();
+    const back = sel("with_return"), fields = document.getElementById("return-fields");
+    const syncBack = () => fields.classList.toggle("hidden", !back.checked);
+    back.addEventListener("change", syncBack); syncBack();
+  })();
+</script>
+{% endblock %}

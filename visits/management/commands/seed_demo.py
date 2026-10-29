@@ -12,8 +12,8 @@ from django.utils import timezone
 
 from accounts.models import Checkpoint, User
 from audit.models import AuditLog
-from visits import services
-from visits.models import EntryBan, Organization, Request, Trip, Visitor
+from visits import rides, services
+from visits.models import EntryBan, Organization, Point, Request, RidePassenger, RideRequest, Trip, Visitor
 
 R = User.Role
 PASSWORD = "demo1234"
@@ -57,6 +57,7 @@ class Command(BaseCommand):
             Request.objects.all().delete()
             Trip.objects.all().delete()
             EntryBan.objects.all().delete()
+            RideRequest.objects.all().delete()
             AuditLog.objects.all().delete()
         elif Request.objects.exists():
             self.stdout.write(self.style.WARNING("Заявки уже есть — данные не созданы. Используйте --reset."))
@@ -224,6 +225,23 @@ class Command(BaseCommand):
                             vehicle_make="MAN TGS", vehicle_plate="707KMT12", driver_name="Сериков Дастан",
                             driver_phone="+7 701 999 88 77", cargo="Деэмульгатор, 20 бочек по 200 л",
                             contract_number="№ 112-ХР/2026", created_by=a1)
+
+        # 16. Заявки на машину: по городу (ждёт и с машиной) и на месторождение (на согласовании)
+        office, bmts, field = (Point.objects.get(name=n) for n in ("Офис Актау", "БМТС (склад)", "Месторождение"))
+
+        def ride(author, frm, to, day, hh, people, cargo="", approval=RideRequest.Approval.NOT_NEEDED):
+            r = RideRequest.objects.create(author=author, from_point=frm, to_point=to, date=day, time=time(hh, 0),
+                                           cargo=cargo, contact_phone="+7 701 234 56 78", approval=approval)
+            for n, doc in people:
+                RidePassenger.objects.create(ride=r, full_name=n, doc_number=doc)
+            return r
+
+        ride(a1, bmts, office, d(0), 15, [("Сагинтаев Ерлан Маратович", "")], cargo="Картриджи для принтеров, 1 коробка")
+        r = ride(a2, office, bmts, d(1), 9, [("Кенжебаева Айгуль Сериковна", ""), ("Мукашев Дамир Ерланович", "")])
+        t, _ = rides.assign_rides(Trip(date=d(1), vehicle_make="Toyota Camry", vehicle_plate="321KBM12",
+                                       driver_name="Оразов Нурлан", driver_phone="+7 705 222 33 44"), [r.pk], disp)
+        ride(a1, bmts, field, d(1), 8, [("Калиев Нуржан Амангельдиевич", fake_iin(rng))],
+             cargo="Задвижки Ду100 — 4 шт.", approval=RideRequest.Approval.PENDING)
 
         for r in Request.objects.all():
             AuditLog.objects.create(user=r.author, username=r.author.username, action=AuditLog.Action.REQUEST_CREATE,
