@@ -6,3 +6,14 @@ whitenoise==6.9.0
 ldap3==2.9.1  # вход через Active Directory
 segno==1.6.6  # QR-коды пропусков
 tzdata==2026.5
+# Модуль «Наряд-допуски» (перенесён из ЭНД)
+djangorestframework==3.16.1
+django-fsm==3.0.1
+docxtpl==0.20.2
+python-docx==1.2.0
+reportlab==4.4.9
+qrcode==8.2
+lxml==6.0.2
+cryptography==46.0.3
+pillow==12.1.0
+openai==2.15.0  # ИИ-помощник нарядов; без ключа выключен

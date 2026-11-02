@@ -157,6 +157,7 @@ def apply(info, user=None):
         "full_name": info["full_name"] or user.full_name,
         "email": info["email"],
         "phone": info["phone"],
+        "position": info["title"] or user.position,
         "role": role or user.role or R.APPLICANT,
         "is_active": bool(role) and not info["disabled"],
     }

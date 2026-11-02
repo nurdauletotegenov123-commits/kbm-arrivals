@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}{% translate "Учёт прибытия" %}{% endblock %} · Каражанбасмунай</title>
+  <title>{% block title %}{% translate "Портал сотрудника" %}{% endblock %} · Каражанбасмунай</title>
   <meta name="theme-color" content="#182025">
   <link rel="icon" type="image/png" href="{% asset 'img/favicon.png' %}">
   <link rel="apple-touch-icon" href="{% asset 'img/apple-touch-icon.png' %}">
@@ -18,7 +18,7 @@
   <div class="topbar-inner">
     <a class="logo" href="{% url 'home' %}" aria-label="{% translate 'На главную' %}">
       <img src="{% asset 'img/logo-shield.png' %}" alt="">
-      <span class="logo-text"><b>Каражанбасмунай</b><span>{% translate "Учёт прибытия" %}</span></span>
+      <span class="logo-text"><b>Каражанбасмунай</b><span>{% translate "Портал сотрудника" %}</span></span>
     </a>
     <nav class="nav">
       {% for item in nav_items %}<a href="{{ item.url }}"{% if item.active %} class="active" aria-current="page"{% endif %}>{{ item.label }}</a>{% endfor %}
@@ -39,7 +39,7 @@
   {% endif %}
   {% block content %}{% endblock %}
 </main>
-{% if user.is_authenticated %}<footer class="footer"><img src="{% asset 'img/logo-shield.png' %}" alt=""> © АО «Каражанбасмунай» · {% translate "Учёт прибытия на месторождение" %}</footer>{% endif %}
+{% if user.is_authenticated %}<footer class="footer"><img src="{% asset 'img/logo-shield.png' %}" alt=""> © АО «Каражанбасмунай» · {% translate "Портал сотрудника" %}</footer>{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -40,7 +40,7 @@ class SignupTests(TestCase):
         self.client.post(reverse("signup"), self.data())
         self.client.logout()
         resp = self.client.post(reverse("login"), {"username": "+7 701 123-45-67", "password": "Kbm-pass-2026"})
-        self.assertRedirects(resp, reverse("home"), target_status_code=302)
+        self.assertRedirects(resp, reverse("home"))  # главная портала с плитками
 
     def test_duplicate_phone_and_honeypot(self):
         self.client.post(reverse("signup"), self.data())
@@ -213,7 +213,8 @@ class AdminAddsUsersTests(TestCase):
         self.client.force_login(self.admin)
 
     def post(self, **data):
-        base = {"role": "applicant", "full_name": "Тест", "is_active": "on", "notify_by_email": "on"}
+        base = {"role": "applicant", "full_name": "Тест", "is_active": "on", "notify_by_email": "on",
+                "permit_role": "WORK_PRODUCER"}
         return self.client.post(reverse("user_create"), {**base, **data})
 
     def test_login_page_offers_email_instead_of_signup(self):

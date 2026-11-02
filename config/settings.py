@@ -6,11 +6,14 @@
 """
 import os
 import sys
+import warnings
 from pathlib import Path
 
 from django.utils.translation import gettext_lazy as _
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+# django-fsm 3.0 (модуль нарядов) при импорте пишет, что переехал в viewflow; работает как прежде
+warnings.filterwarnings("ignore", message="The 'django-fsm' package has been integrated", category=UserWarning)
 
 
 def _load_dotenv(path):
@@ -64,9 +67,15 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "rest_framework",
+    "rest_framework.authtoken",
     "accounts",
     "audit",
     "visits",
+    # Модуль «Наряд-допуски» (перенесён из системы ЭНД)
+    "permits",
+    "core",
+    "egov_qr",
 ]
 
 MIDDLEWARE = [
@@ -176,6 +185,8 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 # Загруженные файлы (документы на груз). Наружу напрямую не отдаются — только через проверку прав.
 MEDIA_ROOT = Path(env("MEDIA_ROOT", str(BASE_DIR / "media")))
+# Сканы, подписи и фото нарядов: интерфейс нарядов ждёт их по этому адресу. Отдаются только вошедшим (accounts/media.py).
+MEDIA_URL = "/permits_scans/"
 CARGO_FILE_MAX_MB = int(env("CARGO_FILE_MAX_MB", "10"))
 CARGO_FILES_MAX = 10
 if not DEBUG and "whitenoise.middleware.WhiteNoiseMiddleware" in MIDDLEWARE:
@@ -223,6 +234,28 @@ TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_BOT_USERNAME = env("TELEGRAM_BOT_USERNAME", "").lstrip("@")
 TELEGRAM_ENABLED = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_USERNAME)
 SITE_URL = env("SITE_URL", "http://localhost:8000")
+
+# --- Модуль «Наряд-допуски» ---
+HSE_BASE_URL = SITE_URL.rstrip("/")  # QR-проверка наряда ведёт на портал
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 20,
+}
+# ИИ-помощник по ОТ и ПБ (внешний сервис): выключен, пока ключ не задан и не согласован с ИБ
+OPENCODE_ZEN_API_KEY = env("OPENCODE_ZEN_API_KEY", "")
+AI_CHAT_MODEL = env("AI_CHAT_MODEL", "")
+# Подписание через eGov Mobile (QR) — выключено, нужен договор с eGov
+EGOV_QR_ENABLED = env_bool("EGOV_QR_ENABLED", False)
+EGOV_QR_BASE_URL = env("EGOV_QR_BASE_URL", HSE_BASE_URL)
+EGOV_QR_ORG_BIN = env("EGOV_QR_ORG_BIN", "")
+EGOV_QR_ORG_NAME_RU = env("EGOV_QR_ORG_NAME_RU", "АО «Каражанбасмунай»")
+EGOV_QR_ORG_NAME_KZ = env("EGOV_QR_ORG_NAME_KZ", "«Қаражанбасмұнай» АҚ")
+EGOV_QR_ORG_NAME_EN = env("EGOV_QR_ORG_NAME_EN", "Karazhanbasmunai JSC")
 
 # Сколько дней после даты прибытия «не прибывший» остаётся в отдельном блоке.
 NO_SHOW_DAYS = int(env("NO_SHOW_DAYS", "2"))

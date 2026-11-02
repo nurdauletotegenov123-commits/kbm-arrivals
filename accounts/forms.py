@@ -7,7 +7,9 @@ from django.utils.translation import gettext_lazy as _
 
 from .models import User
 
-USER_FIELDS = ["username", "full_name", "role", "checkpoint", "organization", "phone", "email", "notify_by_email", "is_active"]
+USER_FIELDS = ["username", "full_name", "role", "checkpoint", "organization", "phone", "email", "notify_by_email", "is_active",
+               # Наряд-допуски
+               "permit_role", "position", "department", "iin", "tabel_number"]
 
 
 def normalize_phone(value):
@@ -71,7 +73,8 @@ class UserCreateForm(UserForm):
                                 widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}))
 
     field_order = ["domain_account", "username", "full_name", "role", "checkpoint", "organization", "phone", "email",
-                   "password1", "password2", "notify_by_email", "is_active"]
+                   "password1", "password2", "notify_by_email", "is_active",
+                   "permit_role", "position", "department", "iin", "tabel_number"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

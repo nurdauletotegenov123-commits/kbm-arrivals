@@ -5,6 +5,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
+# LibreOffice — PDF нарядов из Word-шаблонов (модуль «Наряд-допуски»)
+RUN apt-get update && apt-get install -y --no-install-recommends libreoffice-writer-nogui fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 

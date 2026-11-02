@@ -58,6 +58,8 @@ class Command(BaseCommand):
             Trip.objects.all().delete()
             EntryBan.objects.all().delete()
             RideRequest.objects.all().delete()
+            from permits.models import WorkPermit
+            WorkPermit.objects.all().delete()
             AuditLog.objects.all().delete()
         elif Request.objects.exists():
             self.stdout.write(self.style.WARNING("Заявки уже есть — данные не созданы. Используйте --reset."))
@@ -66,6 +68,9 @@ class Command(BaseCommand):
         users = self._users()
         self._data(users)
         self.stdout.write(self.style.SUCCESS("Готово. Логины: " + ", ".join(u for u, *_ in USERS) + f"; пароль: {PASSWORD}"))
+
+    def _permits(self, users, today):
+        _permits_seed(users, today)
 
     def _users(self):
         users = {}
@@ -79,6 +84,14 @@ class Command(BaseCommand):
                 user.set_password(PASSWORD)
                 user.save()
             users[username] = user
+        # роли в нарядах для показа раздела «Наряд-допуски»
+        for username, permit_role, iin, position in (
+            ("admin", "ADMIN", "800101300001", "Администратор системы"),
+            ("zayavitel", "ISSUER", "850202300002", "Начальник цеха добычи нефти №2"),
+            ("zayavitel2", "ADMITTING", "880303400003", "Мастер по добыче нефти"),
+            ("nachalnik", "AUDITOR", "790404300004", "Начальник штаба безопасности"),
+        ):
+            User.objects.filter(username=username).update(permit_role=permit_role, iin=iin, position=position)
         return users
 
     def _data(self, users):
@@ -243,9 +256,43 @@ class Command(BaseCommand):
         ride(a1, bmts, field, d(1), 8, [("Калиев Нуржан Амангельдиевич", fake_iin(rng))],
              cargo="Задвижки Ду100 — 4 шт.", approval=RideRequest.Approval.PENDING)
 
+        # 17. Наряд-допуски: подразделения и три наряда (согласован, на подписи у допускающего, черновик)
+        self._permits(users, today)
+
         for r in Request.objects.all():
             AuditLog.objects.create(user=r.author, username=r.author.username, action=AuditLog.Action.REQUEST_CREATE,
                                     object_type="request", object_id=str(r.pk), object_repr=str(r))
+
+
+def _permits_seed(users, today):
+    from datetime import datetime as dt
+    from permits.models import ApprovalStep, Department, Location, WorkPermit, WorkPermitTemplate
+
+    for name in ("ЦДНГ-1", "ЦДНГ-2", "Цех подготовки и перекачки нефти", "Энергоцех", "Служба информационных технологий"):
+        Department.objects.get_or_create(name=name)
+    tpl = WorkPermitTemplate.objects.get_or_create(name="Наряд повышенной опасности")[0]
+    issuer, admitting = users["zayavitel"], users["zayavitel2"]
+    aware = lambda d, h: timezone.make_aware(dt.combine(d, time(h, 0)))  # noqa: E731
+    rows = [
+        ("OR-2026-00001", "APPROVED", "Огневые работы: замена задвижки на выкидной линии скв. 1245", "ЦДНГ-2", "Скв. 1245, куст 18", 0, 2),
+        ("OR-2026-00002", "PENDING_APPROVAL", "Работы на высоте: ремонт освещения резервуарного парка РВС-5000", "Цех подготовки и перекачки нефти", "РВС-5000 №3", 1, 1),
+        (None, "DRAFT", "Газоопасные работы: очистка ёмкости дренажной Е-2", "ЦДНГ-1", "ГЗУ-12", 2, 3),
+    ]
+    for num, status, work, dept, place, start, days in rows:
+        loc = Location.objects.get_or_create(name=place)[0]
+        permit = WorkPermit.objects.create(
+            permit_id=num, status=status, initiator=issuer, template=tpl, location=loc,
+            valid_from=aware(today + timedelta(days=start), 8), valid_to=aware(today + timedelta(days=start + days), 18),
+            data={"category": "DANGEROUS", "workName": work, "department": dept},
+        )
+        if status == "PENDING_APPROVAL":
+            ApprovalStep.objects.create(permit=permit, approver=issuer, step_order=1, role="ISSUER", status="APPROVED",
+                                        signed_at=timezone.now())
+            ApprovalStep.objects.create(permit=permit, approver=admitting, step_order=2, role="ADMITTING", status="PENDING")
+        elif status == "APPROVED":
+            for order, (user, role) in enumerate(((issuer, "ISSUER"), (admitting, "ADMITTING")), start=1):
+                ApprovalStep.objects.create(permit=permit, approver=user, step_order=order, role=role, status="APPROVED",
+                                            signed_at=timezone.now())
 
 
 def _at(day, hour):

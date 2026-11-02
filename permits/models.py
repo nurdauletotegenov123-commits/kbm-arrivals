@@ -1,0 +1,471 @@
+import uuid
+from django.db import models
+from django.conf import settings
+from django.core.exceptions import ValidationError # Для ошибок валидации
+from django_fsm import FSMField, transition
+
+
+class WorkPermitTemplate(models.Model):
+    """
+    Модель для описания типа наряда-допуска (например, "Работы на высоте", "Горячие работы").
+    """
+
+    name = models.CharField(max_length=100, unique=True, verbose_name='Название шаблона')
+    description = models.CharField(blank=True, verbose_name='Описание')
+
+    # Позже сюда добавим JSONField для хранения структуры полей наряда.
+
+    is_active = models.BooleanField(default=True, verbose_name='Активен')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Шаблон наряда'
+        verbose_name_plural = 'Шаблоны нарядов'
+
+    def __str__(self):
+        return self.name
+
+
+class WorkPermit(models.Model):
+    """
+    Основная модель наряда-допуска.
+    Хранит данные наряда и его текущее состояние (статус).
+    """
+
+
+    STATUS_DRAFT = 'DRAFT'
+    STATUS_PENDING = 'PENDING_APPROVAL'
+    STATUS_APPROVED = 'APPROVED'
+    STATUS_RENEWED = 'RENEWED'
+    STATUS_REJECTED = 'REJECTED'
+    STATUS_CLOSED = 'CLOSED'
+
+    # Статусы
+    STATUS_CHOICES = (
+        ('DRAFT', 'Черновик'),
+        ('PENDING_APPROVAL', 'Ожидает согласования'),
+        ('APPROVED', 'Согласован'),
+        ('RENEWED', 'Продлён'),
+        ('REJECTED', 'Отклонен'),
+        ('CLOSED', 'Закрыт'),
+    )
+
+    status = FSMField(max_length=20, choices=STATUS_CHOICES, default='DRAFT', verbose_name='Статус наряда', protected=True)
+
+    permit_id = models.CharField(max_length=50, unique=True, null=True, blank=True, verbose_name='Номер наряда')
+
+    # Ссылка на инициатора (работник, который создал наряд)
+    initiator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+                                  related_name='initiated_permits', verbose_name='Инициатор')
+    template = models.ForeignKey(WorkPermitTemplate, on_delete=models.PROTECT, verbose_name='Тип наряда')
+
+    location = models.ForeignKey("Location", on_delete=models.SET_NULL, null=True, blank=True, verbose_name='Место работ')
+    valid_from = models.DateTimeField(null=True, blank=True, verbose_name='Начало работ')
+    valid_to = models.DateTimeField(null=True, blank=True, verbose_name='Окончание работ')
+
+    dangerous_works = models.ManyToManyField(
+       'DangerousWorkType', verbose_name='Виды опасных работ', blank=True
+    )
+
+    # Вся остальная "портянка" данных (риски, состав бригады, LOTO) летит сюда
+    data = models.JSONField(verbose_name='Данные формы', default=dict)
+
+    # ------------------ ВРЕМЯ И АУДИТ ------------------
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата последнего изменения')
+
+    scan_file = models.FileField(upload_to='%Y/%m/', verbose_name='Скан закрытого наряда',
+                                 null=True, blank=True)
+
+    producer_closed = models.BooleanField(default=False, verbose_name='Производитель подтвердил закрытие')
+
+    verify_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, verbose_name='Токен верификации QR')
+
+    safety_document = models.FileField(
+        upload_to='safety_docs/%Y/%m/',
+        verbose_name='Документ к мерам безопасности',
+        null=True,
+        blank=True,
+    )
+
+    loto_photo = models.FileField(
+        upload_to='loto_photos/%Y/%m/',
+        verbose_name='Фото/схема LOTO',
+        null=True,
+        blank=True,
+    )
+
+    # Фотофиксация работ: в БД — только путь к файлу, файлы на диске (media)
+    work_photo_before = models.FileField(
+        upload_to='work_photos/%Y/%m/',
+        verbose_name='Фото до начала работ',
+        null=True,
+        blank=True,
+    )
+    work_photo_after = models.FileField(
+        upload_to='work_photos/%Y/%m/',
+        verbose_name='Фото после окончания работ',
+        null=True,
+        blank=True,
+    )
+    work_photo_during = models.FileField(
+        upload_to='work_photos/%Y/%m/',
+        verbose_name='Фото в процессе работ',
+        null=True,
+        blank=True,
+    )
+
+    # ------------------ FSM LOGIC ------------------
+    # 1. Отправка на согласование
+    @transition(field=status, source=[STATUS_DRAFT, STATUS_REJECTED], target=STATUS_PENDING)
+    def submit(self):
+        """
+        Переводит наряд в статус согласования и генерирует цепочку подписей
+        на основе данных JSON (self.data).
+        При повторной отправке после отклонения: шаги не пересоздаём, подписи сохраняются,
+        только шаг отклонявшего сбрасывается в PENDING — подписывает снова только он.
+        """
+        if not self.data:
+            raise ValidationError("Нельзя отправить пустой наряд. Заполните данные.")
+
+        # Генерация номера наряда при первой отправке
+        if not self.permit_id:
+            import time
+            current_year = time.strftime('%Y')
+            is_electrical_new = (self.data or {}).get('category') == 'ELECTRICAL_NEW'
+            if is_electrical_new:
+                prefix = f"RVE-{current_year}-"
+            else:
+                prefix = f"OR-{current_year}-"
+            last_permit = WorkPermit.objects.filter(
+                permit_id__startswith=prefix
+            ).order_by('-permit_id').first()
+            if last_permit:
+                last_number = int(last_permit.permit_id.split('-')[-1])
+                next_number = last_number + 1
+            else:
+                next_number = 1
+            self.permit_id = f"{prefix}{next_number:05d}"
+
+        # Повторная отправка после отклонения: тот же наряд, тот же номер, подписи сохраняются
+        if self.status == self.STATUS_REJECTED:
+            rejected_step = self.approval_steps.filter(status='REJECTED').first()
+            if rejected_step:
+                rejected_step.status = 'PENDING'
+                rejected_step.signed_at = None
+                rejected_step.save()
+                return
+
+        # Первая отправка (DRAFT) или отклонённый без сохранённых шагов — создаём цепочку заново
+        self.approval_steps.all().delete()
+
+        # Функция-помощник для получения ID из JSON-объекта роли
+        # Фронтенд шлет: "producer": { "id": 5, "name": "..." }
+        def get_user_id(role_key):
+            role_data = self.data.get(role_key)
+            if isinstance(role_data, dict):
+                return role_data.get('id')
+            return None
+
+        # Формируем цепочку (Порядок важен!)
+        steps_config = []
+
+        # Для электроустановок (новый тип) — упрощённая цепочка без доп. согласующих
+        is_electrical_new = (self.data or {}).get('category') == 'ELECTRICAL_NEW'
+
+        # 1. Выдающий наряд — тот, кого указали в поле "Наряд выдал (Выдающий)", иначе создатель наряда
+        issuer_id = get_user_id('issuer')
+        if issuer_id:
+            steps_config.append({'role': 'ISSUER', 'user_id': issuer_id})
+        else:
+            steps_config.append({'role': 'ISSUER', 'user': self.initiator})
+
+        # 2. Ответственный руководитель
+        resp_id = get_user_id('responsible')
+        if resp_id:
+            steps_config.append({'role': 'RESPONSIBLE', 'user_id': resp_id})
+
+        # 3. Допускающий (обязателен)
+        admit_id = get_user_id('admitting')
+        if admit_id:
+            steps_config.append({'role': 'ADMITTING', 'user_id': admit_id})
+        elif is_electrical_new:
+            raise ValidationError("Для электроустановок обязательно укажите «Допускающий».")
+
+        # 4. Производитель работ (из БД или исполнитель без ЭЦП — без учётной записи, графическая подпись)
+        prod_id = get_user_id('producer')
+        prod_raw = self.data.get('producer')
+        external_line = ''
+        if isinstance(prod_raw, dict) and prod_raw.get('external'):
+            external_line = (prod_raw.get('name') or prod_raw.get('freeText') or '').strip()
+        if prod_id:
+            steps_config.append({'role': 'WORK_PRODUCER', 'user_id': prod_id})
+        elif external_line:
+            # Исполнитель без ЭЦП (наряд повышенной опасности): шаг без учётной записи,
+            # подписывает графически — вносит Выдающий или Допускающий со своей учётки
+            steps_config.append({'role': 'WORK_PRODUCER', 'external': True})
+        elif is_electrical_new:
+            raise ValidationError("Для электроустановок обязательно укажите «Производитель работ».")
+
+        # 5-6. Дополнительные согласующие и основной согласующий — только для обычных нарядов
+        if not is_electrical_new:
+            # 5. Дополнительные согласующие (до 5, подписывают ДО основного)
+            additional_coords = self.data.get('additionalCoordinators', [])
+            if isinstance(additional_coords, list):
+                for ac in additional_coords[:5]:
+                    if isinstance(ac, dict) and ac.get('id'):
+                        steps_config.append({'role': 'COORDINATOR', 'user_id': ac['id']})
+                    elif isinstance(ac, dict) and ac.get('external'):
+                        steps_config.append({'role': 'COORDINATOR', 'external': True})
+
+            # 6. Основной согласующий (Нач. смены / участка / инженер ТБ) — подписывает ПОСЛЕДНИМ
+            coord_id = get_user_id('supervisor')
+            sup_raw = self.data.get('supervisor')
+            external_super_line = ''
+            if isinstance(sup_raw, dict) and sup_raw.get('external'):
+                external_super_line = (sup_raw.get('name') or sup_raw.get('freeText') or '').strip()
+            if coord_id:
+                steps_config.append({'role': 'COORDINATOR', 'user_id': coord_id})
+            elif external_super_line:
+                steps_config.append({'role': 'COORDINATOR', 'external': True})
+
+        # СОЗДАЕМ ЗАПИСИ В БД
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+
+        for index, step_data in enumerate(steps_config):
+            if step_data.get('external') and step_data.get('role') == 'WORK_PRODUCER':
+                ApprovalStep.objects.create(
+                    permit=self,
+                    approver=None,
+                    role='WORK_PRODUCER',
+                    step_order=index + 1,
+                    status='PENDING' if index == 0 else 'WAITING',
+                )
+                continue
+
+            if step_data.get('external') and step_data.get('role') == 'COORDINATOR':
+                ApprovalStep.objects.create(
+                    permit=self,
+                    approver=None,
+                    role='COORDINATOR',
+                    step_order=index + 1,
+                    status='PENDING' if index == 0 else 'WAITING',
+                )
+                continue
+
+            # Определяем пользователя (либо объект user, либо user_id)
+            user = step_data.get('user')
+            if not user and step_data.get('user_id'):
+                try:
+                    user = User.objects.get(pk=step_data['user_id'])
+                except User.DoesNotExist:
+                    print(f"Ошибка: Пользователь ID {step_data['user_id']} не найден.")
+                    continue
+
+            if user:
+                ApprovalStep.objects.create(
+                    permit=self,
+                    approver=user,
+                    role=step_data['role'],
+                    step_order=index + 1,
+                    # Первый шаг (Выдающий) сразу активен (PENDING)
+                    # Остальные ждут очереди (WAITING)
+                    status='PENDING' if index == 0 else 'WAITING'
+                )
+
+            # 👇 ДОБАВЛЯЕМ УВЕДОМЛЕНИЯ ВСЕМ УЧАСТНИКАМ
+            if user and user != self.initiator:  # Инициатору не пишем, он и так знает
+                Notification.objects.create(
+                    user=user,
+                    permit_id=self.id,
+                    title="Вы назначены согласующим",
+                    message=f"Вы включены в маршрут согласования наряда №{self.permit_id}. Ваша роль: {step_data.get('role', 'Участник')}."
+                )
+
+        print(f"Наряд {self.permit_id} отправлен. Создано {len(steps_config)} шагов.")
+
+    # 2. Финальное утверждение
+    @transition(field=status, source=STATUS_PENDING, target=STATUS_APPROVED)
+    def approve_final(self):
+        print(f"Наряд {self.permit_id} утвержден.")
+
+    # 2.1 Продление электро-наряда (ровно одно, +1 календарный день)
+    @transition(field=status, source=STATUS_APPROVED, target=STATUS_RENEWED)
+    def renew(self):
+        print(f"Наряд {self.permit_id} продлён на 1 день.")
+
+    # 3. Отклонение (возврат)
+    @transition(field=status, source=STATUS_PENDING, target=STATUS_REJECTED)
+    def reject(self):
+        print(f"Наряд {self.permit_id} отклонен и возвращен инициатору.")
+
+    # 4. Закрытие
+    @transition(field=status, source=[STATUS_APPROVED, STATUS_RENEWED], target=STATUS_CLOSED)
+    def close_permit(self):
+        print(f"Наряд {self.permit_id} закрыт.")
+
+    @transition(field=status, source=[STATUS_APPROVED, STATUS_RENEWED], target='CLOSED')
+    def close_work(self):
+        """
+        Перевод наряда в статус 'Закрыт'.
+        Вызывается, когда Допускающий прикрепляет скан и закрывает наряд.
+        Продлённый (RENEWED) наряд тоже можно закрыть.
+        """
+        pass
+
+    class Meta:
+        verbose_name = 'Наряд Допуск'
+        verbose_name_plural = 'Наряды Допуска'
+        ordering = ('-created_at',)
+
+    def __str__(self):
+        return f'{self.permit_id or "Проект"} ({self.status})'
+
+
+class ApprovalStep(models.Model):
+    """
+    Запись о том, кто и на каком этапе должен согласовать/подписать наряд.
+    Это также наш immutable audit trail для подписей.
+    """
+
+    permit = models.ForeignKey(WorkPermit, on_delete=models.CASCADE, # Если наряд удален, удаляем и шаги
+                               related_name='approval_steps')
+
+    approver = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        verbose_name='Согласующий',
+        null=True,
+        blank=True,
+    )
+
+    # Последовательность шага
+    step_order = models.PositiveSmallIntegerField(verbose_name='Порядок шага')
+
+    # Место для хранения криптографической подписи NCALayer (PKCS#7)
+
+    # Сюда кладем "сырой" XML (длинная строка) - это ДОКАЗАТЕЛЬСТВО
+    signed_xml = models.TextField(verbose_name="Цифровая подпись (CMS/XML)", blank=True, null=True)
+    # Сюда кладем краткую инфо (Subject DN) - для ОТОБРАЖЕНИЯ
+    signer_details = models.JSONField(verbose_name='Детали подписанта', default=dict, blank=True,
+                                   help_text="ФИО, ИИН, БИН из сертификата для быстрого просмотра")
+
+    # Статус конкретного шага
+    STATUS_CHOICES = (
+        ('WAITING', 'Ожидает очереди'),
+        ('PENDING', 'Ожидает подписи'),
+        ('APPROVED', 'Подписан'),
+        ('REJECTED', 'Отклонен'),
+    )
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING', verbose_name='Статус шага')
+    signed_at = models.DateTimeField(null=True, blank=True, verbose_name='Дата подписания')
+
+    ROLE_CHOICES = (
+        ('ISSUER', 'Выдающий наряд'),
+        ('RESPONSIBLE', 'Ответственный руководитель'),
+        ('ADMITTING', 'Допускающий'),
+        ('WORK_PRODUCER', 'Производитель работ'),
+        ('COORDINATOR', 'Согласующий'),
+    )
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='ISSUER', verbose_name='Роль согласующего')
+    rejection_reason = models.TextField(verbose_name='Причина отклонения', blank=True, null=True)
+
+
+    class Meta:
+        verbose_name = 'Шаг согласования'
+        verbose_name_plural = 'Шаги согласования'
+        # Один наряд не может иметь два одинаковых номера шага
+        unique_together = ('permit', 'step_order')
+        ordering = ('step_order',)
+
+    def __str__(self):
+        return f"Step {self.step_order} for {self.permit.permit_id}"
+
+
+class Department(models.Model):
+    """
+    Модуль 'Департаменты' (цеха, отделы, службы) [cite: 504]
+    """
+
+    name = models.CharField(max_length=255, unique=True, verbose_name='Название департамента')
+    name_kk = models.CharField(max_length=255, blank=True, default='', verbose_name='Атауы (қазақша)')
+
+    class Meta:
+        verbose_name = 'Департамент'
+        verbose_name_plural = "Департаменты"
+
+    def __str__(self):
+        return self.name
+
+
+class Location(models.Model):
+    """
+    Модуль 'Локации' (месторождения, участки, объекты) [cite: 506]
+    """
+
+    name = models.CharField(max_length=255, verbose_name='Название локации')
+    # По требованиям ТС, храним геоданные [cite: 506]
+    latitude = models.DecimalField(max_digits=17, decimal_places=15, null=True, blank=True, verbose_name='Широта')
+    longitude = models.DecimalField(max_digits=17, decimal_places=15, null=True, blank=True, verbose_name='Долгота')
+
+    # Ссылка на департамент для иерархии
+    department = models.ForeignKey('Department', on_delete=models.SET_NULL,
+                                    null=True, blank=True, verbose_name='Привязка к департаменту')
+
+    class Meta:
+        verbose_name = 'Локация'
+        verbose_name_plural = 'Локации'
+        unique_together = ('name', 'department')  # Локация уникальна в рамках департамента
+
+    def __str__(self):
+        return self.name
+
+
+
+class DangerousWorkType(models.Model):
+    """
+    Модуль 'Виды опасных работ' [cite: 509]
+    """
+    name = models.CharField(max_length=512, unique=True, verbose_name='Вид опасных работ')
+    name_kk = models.CharField(max_length=512, blank=True, default='', verbose_name='Атауы (қазақша)')
+    # Требуется функция 'редактирования цветов рамок, изображений для идентификации' [cite: 511]
+    color_code = models.CharField(max_length=7, default="#FF0000", verbose_name='Цвет рамки (HEX)')
+
+    class Meta:
+        verbose_name = 'Вид опасных работ'
+        verbose_name_plural = 'Виды опасных работ'
+
+    def __str__(self):
+        return self.name
+
+
+class ElectricalWorkType(models.Model):
+    """
+    Справочник 'Виды электрических работ' — отдельная таблица для нарядов
+    на работу в электроустановках (ELECTRICAL_NEW).
+    """
+    name = models.CharField(max_length=512, unique=True, verbose_name='Вид электрических работ')
+    name_kk = models.CharField(max_length=512, blank=True, default='', verbose_name='Атауы (қазақша)')
+    color_code = models.CharField(max_length=7, default="#FF0000", verbose_name='Цвет рамки (HEX)')
+
+    class Meta:
+        verbose_name = 'Вид электрических работ'
+        verbose_name_plural = 'Виды электрических работ'
+
+    def __str__(self):
+        return self.name
+
+
+class Notification(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Ссылка на наряд, чтобы при клике открывать его
+    permit_id = models.CharField(max_length=50, blank=True, null=True)
+
+    class Meta:
+        ordering = ['-created_at']

@@ -78,9 +78,19 @@ def signup(request):
 
 @login_required
 def home(request):
-    if request.user.is_admin_role:
-        return redirect("dashboard")
-    return redirect(HOME_BY_ROLE.get(request.user.role, "request_list"))
+    """Портал: заявителю, начальнику штаба и администратору — плитки разделов;
+    охрана, кэмп и диспетчер сразу попадают на свой рабочий экран."""
+    user = request.user
+    if user.role in (R.SECURITY, R.CAMP, R.DISPATCHER) and not user.is_admin_role:
+        return redirect(HOME_BY_ROLE[user.role])
+    from .portal import tiles
+
+    hour = timezone.localtime().hour
+    greeting = _("Доброе утро") if 5 <= hour < 12 else _("Добрый день") if hour < 18 else _("Добрый вечер")
+    first = (user.full_name or user.username).split()
+    name = first[1] if len(first) > 1 else first[0]  # «Өтегенов Нұрдәулет …» → «Нұрдәулет»
+    return render(request, "portal/home.html", {"tiles": tiles(user), "greeting": greeting, "name": name,
+                                                "today": timezone.localdate()})
 
 
 def _snapshot(user):

@@ -26,6 +26,16 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractUser):
+    class PermitRole(models.TextChoices):
+        """Роль в модуле «Наряд-допуски» (из системы ЭНД hse.kbm.kz)."""
+        WORK_PRODUCER = "WORK_PRODUCER", _("Производитель работ")
+        ISSUER = "ISSUER", _("Выдающий наряд")
+        ADMITTING = "ADMITTING", _("Допускающий")
+        RESPONSIBLE = "RESPONSIBLE", _("Ответственный руководитель работ")
+        COORDINATOR = "COORDINATOR", _("Согласующий")
+        AUDITOR = "AUDITOR", _("Аудитор")
+        ADMIN = "ADMIN", _("Администратор нарядов")
+
     class Role(models.TextChoices):
         APPLICANT = "applicant", _("Заявитель")
         CHIEF = "chief", _("Начальник штаба безопасности")  # согласует заявки
@@ -60,6 +70,20 @@ class User(AbstractUser):
         help_text=_("Для охраны, кэмпа/столовой и диспетчера: письма о новых и изменённых заявках."),
     )
 
+    # --- Наряд-допуски ---
+    permit_role = models.CharField(_("роль в нарядах"), max_length=20, choices=PermitRole.choices,
+                                   default=PermitRole.WORK_PRODUCER)
+    iin = models.CharField(_("ИИН"), max_length=12, null=True, blank=True, unique=True,
+                           help_text=_("Нужен для подписи нарядов ЭЦП: сверяется с ИИН в сертификате."))
+    bin = models.CharField(_("БИН организации"), max_length=12, blank=True, default="000000000000",
+                           help_text=_("Если сотрудник подписывает ЭЦП юридического лица."))
+    tabel_number = models.CharField(_("табельный номер"), max_length=20, null=True, blank=True, unique=True)
+    position = models.CharField(_("должность"), max_length=255, blank=True)
+    surname = models.CharField(_("отчество"), max_length=150, blank=True)
+    company_name = models.CharField(_("компания"), max_length=50, blank=True, default="АО Каражанбасмунай")
+    department = models.ForeignKey("permits.Department", verbose_name=_("подразделение"), null=True, blank=True,
+                                   on_delete=models.SET_NULL, related_name="+")
+
     # Telegram: chat_id появляется, когда человек нажал «Подключить Telegram» и «Start» в боте.
     telegram_chat_id = models.CharField(_("Telegram chat id"), max_length=32, blank=True, editable=False)
     telegram_token = models.CharField(max_length=32, blank=True, editable=False)
@@ -82,6 +106,20 @@ class User(AbstractUser):
     def has_role(self, *roles):
         """Администратор имеет доступ ко всем разделам."""
         return self.is_admin_role or self.role in roles
+
+    @property
+    def is_admin(self):
+        """Для модуля нарядов: администратор портала или администратор нарядов."""
+        return self.is_admin_role or self.permit_role == self.PermitRole.ADMIN
+
+    @property
+    def is_auditor(self):
+        return self.permit_role == self.PermitRole.AUDITOR
+
+    def get_full_name(self):
+        """Наряды печатают ФИО: из AD приходит целиком в full_name."""
+        return self.full_name or " ".join(p for p in (self.last_name, self.first_name, self.surname) if p) \
+            or self.username
 
     @property
     def display_name(self):

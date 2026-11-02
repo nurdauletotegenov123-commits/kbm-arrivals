@@ -1,0 +1,1804 @@
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+   Plus, Trash2, Zap, Clock, Users, ShieldAlert,
+   FileText, Calendar, ChevronDown, CheckCircle2,
+   PenTool, Building, AlertTriangle, Lock, ShieldCheck,
+   ArrowLeft, UserPlus, UserMinus, ClipboardList, FileCheck
+} from 'lucide-react';
+import {
+   ElectricalFormData,
+   ElectricalSafetyMeasure,
+   ElectricalPermitExtension,
+   ELECTRICAL_WORK_CATEGORIES,
+   ElectricalLifecycle,
+   DailyAdmission,
+   BrigadeChange,
+   RiskTableRow,
+   RiskGroupMember
+} from '../types';
+import { IsolationMatrixForm } from './IsolationMatrixForm';
+import { RiskAssessmentWidget } from './RiskAssessmentWidget';
+import { Stepper } from './Stepper';
+import { UserSearchSelect } from './UserSearchSelect';
+
+
+interface Props {
+   mode: 'create' | 'execution';
+   initialData?: ElectricalFormData;
+   initialLifecycle?: ElectricalLifecycle;
+   onSubmit?: (data: ElectricalFormData) => void;
+   onUpdateLifecycle?: (lifecycle: ElectricalLifecycle) => void;
+   onCancel?: () => void;
+   /** Заголовок формы — рендерится в закреплённой группе над степпером */
+   header?: React.ReactNode;
+   /** ID существующего черновика наряда (для PATCH при автосохранении) */
+   permitId?: string | number | null;
+}
+
+type TabKey = 'main' | 'backside' | 'lifecycle' | 'risks' | 'loto';
+
+export const ElectricalPermitFormNew: React.FC<Props> = ({
+   mode,
+   initialData,
+   initialLifecycle,
+   onSubmit,
+   onUpdateLifecycle,
+   onCancel,
+   header,
+   permitId
+}) => {
+   const { t } = useTranslation();
+   const isReadonly = mode === 'execution';
+   const [activeTab, setActiveTab] = useState<TabKey>(mode === 'execution' ? 'lifecycle' : 'main');
+
+   // Step navigation for create mode (4 steps: main, backside, risks, loto)
+   const createModeSteps: TabKey[] = ['main', 'backside', 'risks', 'loto'];
+   const currentStepIndex = createModeSteps.indexOf(activeTab);
+   const totalSteps = 4;
+   const currentStep = currentStepIndex >= 0 ? currentStepIndex + 1 : 1;
+
+   const goToNextStep = () => {
+      if (currentStepIndex < createModeSteps.length - 1) {
+         setActiveTab(createModeSteps[currentStepIndex + 1]);
+      } else {
+         // Last step - submit
+         onSubmit?.(formData);
+      }
+   };
+
+   const goToPrevStep = () => {
+      if (currentStepIndex > 0) {
+         setActiveTab(createModeSteps[currentStepIndex - 1]);
+      } else {
+         onCancel?.();
+      }
+   };
+
+   // --- State Management ---
+   const [formData, setFormData] = useState<ElectricalFormData>(initialData || {
+      organization: '«КБМ» АҚ (АО «КБМ»)',
+      department: 'Электр цехы (Электроцех)',
+      workManagerId: '',
+      workManagerGroup: '',
+      admittingAuthorityId: '',
+      admittingAuthorityGroup: '',
+      workProducerId: '',
+      workProducerGroup: '',
+      observerId: '',
+      observerGroup: '',
+      brigadeMembers: [{ name: '', group: '' }],
+      workCategory: '',
+      assignment: '',
+      startDate: '',
+      endDate: '',
+      emergencyReadinessTime: '',
+      safetyMeasures: [{ id: '1', installationName: '', actionRequired: '' }],
+      separateInstructions: '',
+      issuerId: '',
+      issuerDate: new Date().toISOString().split('T')[0],
+      issuerTime: '',
+      issuerLastName: '',
+      extensions: [],
+      voltageRemainsAt: '',
+      riskTable: [],
+      lotoEnabled: false,
+      isolationMatrix: {
+         department: '',
+         site: '',
+         dateDeveloped: new Date().toISOString().split('T')[0],
+         dateRevised: new Date().toISOString().split('T')[0],
+         equipmentName: '',
+         techNumber: '',
+         energySourceCount: 1,
+         energyType: '',
+         lockType: '',
+         installLocation: '',
+         checkResidualEnergy: false,
+         checkLockDevice: false,
+         checkPadlock: false,
+         checkTag: false
+      }
+   });
+
+   const [lifecycle, setLifecycle] = useState<ElectricalLifecycle>(initialLifecycle || {
+      dailyAdmissions: [],
+      brigadeChanges: [],
+      briefingLogs: []
+   });
+
+   const [isContractorOrg, setIsContractorOrg] = useState(false);
+   const [isContractorDept, setIsContractorDept] = useState(false);
+
+   // Risk assessment participants state
+   const [riskIdentifiedBy, setRiskIdentifiedBy] = useState('');
+   const [riskGroup, setRiskGroup] = useState<RiskGroupMember[]>([]);
+
+   const addRiskGroupMember = () => {
+      const newMember: RiskGroupMember = {
+         id: Date.now().toString(),
+         name: '',
+         position: ''
+      };
+      setRiskGroup(prev => [...prev, newMember]);
+   };
+
+   const removeRiskGroupMember = (id: string) => {
+      setRiskGroup(prev => prev.filter(m => m.id !== id));
+   };
+
+   const updateRiskGroupMember = (id: string, field: keyof RiskGroupMember, value: string) => {
+      setRiskGroup(prev => prev.map(m => m.id === id ? { ...m, [field]: value } : m));
+   };
+
+   const updateField = (field: keyof ElectricalFormData, value: any) => {
+      if (isReadonly) return;
+      setFormData(prev => ({ ...prev, [field]: value }));
+   };
+
+   // --- АВТОСОХРАНЕНИЕ ЧЕРНОВИКА (только в режиме create) ---
+   const [draftPermitId, setDraftPermitId] = useState<string | number | null>(permitId || null);
+   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   const autoSaveInProgressRef = useRef(false);
+
+   const hasMeaningfulData = (): boolean => {
+      return Boolean(
+         formData.workManagerId ||
+         formData.admittingAuthorityId ||
+         formData.workProducerId ||
+         formData.workCategory ||
+         formData.assignment ||
+         formData.department ||
+         formData.organization ||
+         (formData.brigadeMembers && formData.brigadeMembers.length > 0 && formData.brigadeMembers.some((m: any) => (typeof m === 'string' ? m : m?.name)?.trim()))
+      );
+   };
+
+   const buildDraftPayload = () => {
+      const fullData = {
+         ...formData,
+         category: 'ELECTRICAL',
+         templateType: 'Наряд на электроустановках',
+      };
+      return {
+         location_name: formData.department || 'Электроустановка',
+         valid_from: formData.startDate || null,
+         valid_to: formData.endDate || null,
+         data: fullData,
+      };
+   };
+
+   const persistDraft = async () => {
+      if (isReadonly || !hasMeaningfulData() || autoSaveInProgressRef.current) return;
+      autoSaveInProgressRef.current = true;
+      try {
+         const token = localStorage.getItem('auth_token');
+         const url = draftPermitId ? `/api/v1/permits/${draftPermitId}/` : '/api/v1/permits/';
+         const method = draftPermitId ? 'PATCH' : 'POST';
+         const response = await fetch(url, {
+            method,
+            headers: {
+               'Content-Type': 'application/json',
+               'Authorization': `Token ${token}`
+            },
+            body: JSON.stringify(buildDraftPayload())
+         });
+         if (response.ok) {
+            const result = await response.json();
+            if (result?.id) setDraftPermitId(result.id);
+         }
+      } catch (e) {
+         console.error('Ошибка автосохранения электро-наряда:', e);
+      } finally {
+         autoSaveInProgressRef.current = false;
+      }
+   };
+
+   // Автосохранение при изменении данных (debounce 1200мс)
+   useEffect(() => {
+      if (isReadonly || mode !== 'create') return;
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(() => {
+         void persistDraft();
+      }, 1200);
+      return () => {
+         if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      };
+   }, [formData, draftPermitId, mode, isReadonly]);
+
+   // Попытка финального сохранения при закрытии вкладки
+   useEffect(() => {
+      if (isReadonly || mode !== 'create') return;
+      const handleBeforeUnload = () => {
+         if (!hasMeaningfulData()) return;
+         const token = localStorage.getItem('auth_token');
+         const url = draftPermitId ? `/api/v1/permits/${draftPermitId}/` : '/api/v1/permits/';
+         const method = draftPermitId ? 'PATCH' : 'POST';
+         void fetch(url, {
+            method,
+            keepalive: true,
+            headers: {
+               'Content-Type': 'application/json',
+               'Authorization': `Token ${token}`
+            },
+            body: JSON.stringify(buildDraftPayload())
+         });
+      };
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+   }, [formData, draftPermitId, mode, isReadonly]);
+
+   const updateLifecycle = (updater: (prev: ElectricalLifecycle) => ElectricalLifecycle) => {
+      const next = updater(lifecycle);
+      setLifecycle(next);
+      onUpdateLifecycle?.(next);
+   };
+
+   // Updated Input Classes: Filled Gray Background, White on Focus
+   const inputClasses = `w-full bg-[#F1F5F9] border-b-2 border-slate-300 px-3 py-1.5 text-3xl outline-none transition-all rounded-t-sm ${isReadonly
+      ? 'bg-transparent border-transparent font-bold px-0'
+      : 'hover:bg-[#E2E8F0] focus:bg-white focus:border-blue-600 focus:shadow-md'
+      }`;
+
+   const renderMainTab = () => (
+      <div className="space-y-6 ">
+
+         {/* Section 1: General Information */}
+         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <h3 className="font-bold text-gray-900 mb-6 uppercase text-sm tracking-wider border-b-2 border-slate-900 pb-2 flex items-center gap-2">
+               <FileText size={24} className="text-blue-600" />{t('electrical.sec.general')}</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+               <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.org')}</label>
+                  <div className="relative">
+                     <select
+                        className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 appearance-none transition-all"
+                        value={isContractorOrg ? 'CONTRACTOR' : formData.organization}
+                        onChange={(e) => {
+                           if (e.target.value === 'CONTRACTOR') {
+                              setIsContractorOrg(true);
+                              updateField('organization', '');
+                           } else {
+                              setIsContractorOrg(false);
+                              updateField('organization', e.target.value);
+                           }
+                        }}
+                        disabled={isReadonly}
+                     >
+                        <option value="«КБМ» АҚ (АО «КБМ»)">АО «Каражанбасмунай»</option>
+                        <option value="CONTRACTOR">{t('electrical.labels.contractorOrg')}</option>
+                     </select>
+                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
+                  </div>
+                  {isContractorOrg && !isReadonly && (
+                     <input
+                        className="mt-2 w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                        placeholder="Введите название организации..."
+                        value={formData.organization}
+                        onChange={e => updateField('organization', e.target.value)}
+                        autoFocus
+                     />
+                  )}
+               </div>
+               <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.dept')}</label>
+                  <div className="relative">
+                     <select
+                        className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 appearance-none transition-all"
+                        value={isContractorDept ? 'CONTRACTOR' : formData.department}
+                        onChange={(e) => {
+                           if (e.target.value === 'CONTRACTOR') {
+                              setIsContractorDept(true);
+                              updateField('department', '');
+                           } else {
+                              setIsContractorDept(false);
+                              updateField('department', e.target.value);
+                           }
+                        }}
+                        disabled={isReadonly}
+                     >
+                        <option value="Электр цехы (Электроцех)">Электроцех</option>
+                        <option value="Мұнай өндіру цехы (ЦДН)">ЦДН</option>
+                        <option value="CONTRACTOR">{t('electrical.labels.other')}</option>
+                     </select>
+                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
+                  </div>
+                  {isContractorDept && !isReadonly && (
+                     <input
+                        className="mt-2 w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                        placeholder="Введите название подразделения..."
+                        value={formData.department}
+                        onChange={e => updateField('department', e.target.value)}
+                        autoFocus
+                     />
+                  )}
+               </div>
+            </div>
+         </div>
+
+         {/* Section 2: Responsible Persons */}
+         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <h3 className="font-bold text-gray-900 mb-6 uppercase text-sm tracking-wider border-b-2 border-slate-900 pb-2 flex items-center gap-2">
+               <Users size={24} className="text-blue-600" />{t('electrical.sec.responsible')}</h3>
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                   <UserSearchSelect
+                      label={t('electrical.labels.workManager')}
+                      value={formData.workManagerId}
+                      required={false}
+                      onChange={(user) => {
+                         updateField('workManagerId', user ? user.name : '');
+                         updateField('workManagerPosition', user ? user.position : '');
+                      }}
+                      placeholder={t('electrical.ph.fio')}
+                      disabled={isReadonly}
+                   />
+                   <select
+                      className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors mt-2"
+                      value={formData.workManagerGroup || ''}
+                      onChange={e => updateField('workManagerGroup', e.target.value)}
+                      disabled={isReadonly}
+                   >
+                      <option value="">{t('electrical.misc.group')}</option>
+                      <option value="1">I</option>
+                      <option value="2">II</option>
+                      <option value="3">III</option>
+                      <option value="4">IV</option>
+                      <option value="5">V</option>
+                   </select>
+                </div>
+                <div>
+                   <UserSearchSelect
+                      label={t('electrical.labels.admitting')}
+                      value={formData.admittingAuthorityId}
+                      required={false}
+                      onChange={(user) => {
+                         updateField('admittingAuthorityId', user ? user.name : '');
+                         updateField('admittingPosition', user ? user.position : '');
+                      }}
+                      placeholder={t('electrical.ph.fio')}
+                      disabled={isReadonly}
+                   />
+                   <select
+                      className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors mt-2"
+                      value={formData.admittingAuthorityGroup || ''}
+                      onChange={e => updateField('admittingAuthorityGroup', e.target.value)}
+                      disabled={isReadonly}
+                   >
+                      <option value="">{t('electrical.misc.group')}</option>
+                      <option value="1">I</option>
+                      <option value="2">II</option>
+                      <option value="3">III</option>
+                      <option value="4">IV</option>
+                      <option value="5">V</option>
+                   </select>
+                </div>
+                <div>
+                   <UserSearchSelect
+                      label={t('electrical.labels.producer')}
+                      value={formData.workProducerId}
+                      required={false}
+                      onChange={(user) => {
+                         updateField('workProducerId', user ? user.name : '');
+                         updateField('workProducerPosition', user ? user.position : '');
+                      }}
+                      placeholder={t('electrical.ph.fio')}
+                      disabled={isReadonly}
+                   />
+                   <select
+                      className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors mt-2"
+                      value={formData.workProducerGroup || ''}
+                      onChange={e => updateField('workProducerGroup', e.target.value)}
+                      disabled={isReadonly}
+                   >
+                      <option value="">{t('electrical.misc.group')}</option>
+                      <option value="1">I</option>
+                      <option value="2">II</option>
+                      <option value="3">III</option>
+                      <option value="4">IV</option>
+                      <option value="5">V</option>
+                   </select>
+                </div>
+                <div>
+                   <UserSearchSelect
+                      label={t('electrical.labels.observer')}
+                      value={formData.observerId || ''}
+                      required={false}
+                      onChange={(user) => {
+                         updateField('observerId', user ? user.name : '');
+                         updateField('observerPosition', user ? user.position : '');
+                      }}
+                      placeholder={t('electrical.ph.fio')}
+                      disabled={isReadonly}
+                   />
+                   <select
+                      className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors mt-2"
+                      value={formData.observerGroup || ''}
+                      onChange={e => updateField('observerGroup', e.target.value)}
+                      disabled={isReadonly}
+                   >
+                      <option value="">{t('electrical.misc.group')}</option>
+                      <option value="1">I</option>
+                      <option value="2">II</option>
+                      <option value="3">III</option>
+                      <option value="4">IV</option>
+                      <option value="5">V</option>
+                   </select>
+                </div>
+
+                {/* Brigade Members */}
+                <div className="md:col-span-2 pt-4 border-t border-gray-100">
+                   <div className="flex justify-between items-center mb-3">
+                      <label className="block text-sm font-semibold text-gray-700">{t('electrical.labels.brigadeMembers')}</label>
+                      {!isReadonly && (
+                         <button
+                            onClick={() => updateField('brigadeMembers', [...(formData.brigadeMembers || []), { name: '', group: '' }])}
+                            disabled={(formData.brigadeMembers || []).length >= 10}
+                            className={`flex items-center gap-1 px-3 py-1 rounded font-semibold ${(formData.brigadeMembers || []).length >= 10 ? 'text-gray-300 cursor-not-allowed' : 'text-blue-600 hover:bg-blue-50'}`}
+                         >
+                            <Plus size={16} />{t('electrical.btn.addMember')}
+                         </button>
+                      )}
+                   </div>
+                   <div className="space-y-2">
+                      {(formData.brigadeMembers || []).map((member, index) => {
+                         // Support both old string format and new object format
+                         const memberObj = typeof member === 'string' ? { name: member, group: '' } : member;
+                         return (
+                            <div key={index} className="flex gap-2 items-start">
+                               <span className="text-xs text-gray-400 w-6 pt-2">{index + 1}.</span>
+                               <div className="flex-1">
+                                  <UserSearchSelect
+                                     label=""
+                                     hideLabel
+                                     value={memberObj.name || ''}
+                                     required={false}
+                                     onChange={(user) => {
+                                        const updated = [...(formData.brigadeMembers || [])];
+                                        updated[index] = { ...memberObj, name: user ? user.name : '' };
+                                        updateField('brigadeMembers', updated);
+                                     }}
+                                     placeholder={t('electrical.ph.fio')}
+                                     disabled={isReadonly}
+                                  />
+                               </div>
+                               <input
+                                  className="w-40 bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 transition-all"
+                                  placeholder={t('electrical.ph.group')}
+                                  value={memberObj.group || ''}
+                                  onChange={e => {
+                                     const updated = [...(formData.brigadeMembers || [])];
+                                     updated[index] = { ...memberObj, group: e.target.value };
+                                     updateField('brigadeMembers', updated);
+                                  }}
+                                  disabled={isReadonly}
+                               />
+                               {!isReadonly && (
+                                  <button
+                                     onClick={() => {
+                                        const updated = (formData.brigadeMembers || []).filter((_, i) => i !== index);
+                                        updateField('brigadeMembers', updated);
+                                     }}
+                                     className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                                  >
+                                     <Trash2 size={16} />
+                                  </button>
+                               )}
+                            </div>
+                         );
+                      })}
+                      {(formData.brigadeMembers || []).length === 0 && (
+                         <p className="text-gray-400 text-sm italic">{t('electrical.misc.brigadeHint')}</p>
+                      )}
+                   </div>
+                </div>
+             </div>
+          </div>
+
+         {/* Section 3: Work Details */}
+         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <h3 className="font-bold text-gray-900 mb-6 uppercase text-sm tracking-wider border-b-2 border-slate-900 pb-2 flex items-center gap-2">
+               <Zap size={24} className="text-amber-500" />{t('electrical.sec.workDetails')}</h3>
+            <div className="space-y-6">
+               <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.category')}</label>
+                  <div className="relative">
+                     <select
+                        className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 appearance-none transition-all"
+                        value={formData.workCategory}
+                        onChange={e => updateField('workCategory', e.target.value)}
+                        disabled={isReadonly}
+                     >
+                        <option value="">{t('electrical.ph.category')}</option>
+                        {ELECTRICAL_WORK_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                     </select>
+                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
+                  </div>
+               </div>
+               <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.assignment')}</label>
+                  <textarea
+                     className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 transition-all min-h-[120px] resize-none"
+                     placeholder={t('electrical.ph.assignment')}
+                     value={formData.assignment}
+                     onChange={e => updateField('assignment', e.target.value)}
+                     disabled={isReadonly}
+                  />
+               </div>
+            </div>
+         </div>
+
+         {/* Section 4: Schedule */}
+         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <h3 className="font-bold text-gray-900 mb-6 uppercase text-sm tracking-wider border-b-2 border-slate-900 pb-2 flex items-center gap-2">
+               <Clock size={24} className="text-green-600" />{t('electrical.sec.schedule')}</h3>
+            <div className="space-y-6">
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                     <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.startDate')}</label>
+                     <input
+                        type="date"
+                        className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 transition-all"
+                        value={formData.startDate?.split('T')[0] || ''}
+                        onChange={e => {
+                           const time = formData.startDate?.split('T')[1] || '08:00';
+                           updateField('startDate', e.target.value + 'T' + time);
+                        }}
+                        disabled={isReadonly}
+                     />
+                  </div>
+                  <div>
+                     <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.time')}</label>
+                     <input
+                        type="time"
+                        className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 transition-all"
+                        value={formData.startDate?.split('T')[1] || ''}
+                        onChange={e => {
+                           const date = formData.startDate?.split('T')[0] || new Date().toISOString().split('T')[0];
+                           updateField('startDate', date + 'T' + e.target.value);
+                        }}
+                        disabled={isReadonly}
+                     />
+                  </div>
+               </div>
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                     <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.endDate')}</label>
+                     <input
+                        type="date"
+                        className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 transition-all"
+                        value={formData.endDate?.split('T')[0] || ''}
+                        onChange={e => {
+                           const time = formData.endDate?.split('T')[1] || '17:00';
+                           updateField('endDate', e.target.value + 'T' + time);
+                        }}
+                        disabled={isReadonly}
+                     />
+                  </div>
+                  <div>
+                     <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.time')}</label>
+                     <input
+                        type="time"
+                        className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 transition-all"
+                        value={formData.endDate?.split('T')[1] || ''}
+                        onChange={e => {
+                           const date = formData.endDate?.split('T')[0] || new Date().toISOString().split('T')[0];
+                           updateField('endDate', date + 'T' + e.target.value);
+                        }}
+                        disabled={isReadonly}
+                     />
+                  </div>
+               </div>
+               <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.emergency')}</label>
+                  <input
+                     className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 transition-all"
+                     placeholder={t('electrical.ph.emergency')}
+                     value={formData.emergencyReadinessTime}
+                     onChange={e => updateField('emergencyReadinessTime', e.target.value)}
+                     disabled={isReadonly}
+                  />
+               </div>
+            </div>
+         </div>
+
+         {/* Section 5: Safety Measures */}
+         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <div className="flex justify-between items-center mb-4">
+               <h3 className="font-bold text-gray-900 uppercase text-sm tracking-wider flex items-center gap-2">
+                  <ShieldAlert size={24} className="text-red-600" />{t('electrical.sec.safety')}</h3>
+               {!isReadonly && (
+                  <button
+                     onClick={() => updateField('safetyMeasures', [...(formData.safetyMeasures || []), { id: Date.now().toString(), installationName: '', actionRequired: '' }])}
+                     className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 transition-colors shadow-sm"
+                  >
+                     <Plus size={18}/>{t('electrical.btn.add')}</button>
+               )}
+            </div>
+            <div>
+               <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <table className="w-full">
+                     <thead className="bg-gray-50">
+                        <tr>
+                           <th className="px-3 py-1.5 text-left text-gray-500 font-semibold text-sm border-b border-gray-200">{t('electrical.th.installation')}</th>
+                           <th className="px-3 py-1.5 text-left text-gray-500 font-semibold text-sm border-b border-gray-200">{t('electrical.th.action')}</th>
+                           {!isReadonly && <th className="px-3 py-1.5 w-12 border-b border-gray-200"></th>}
+                        </tr>
+                     </thead>
+                     <tbody className="divide-y divide-gray-100">
+                        {(formData.safetyMeasures || []).map((measure) => (
+                           <tr key={measure.id} className="hover:bg-gray-50/50">
+                              <td className="p-3">
+                                 <textarea
+                                    className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-1.5 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 min-h-[80px] resize-none"
+                                    value={measure.installationName}
+                                    onChange={e => {
+                                       const updated = (formData.safetyMeasures || []).map(m => m.id === measure.id ? { ...m, installationName: e.target.value } : m);
+                                       updateField('safetyMeasures', updated);
+                                    }}
+                                    disabled={isReadonly}
+                                    placeholder={t('electrical.ph.installation')}
+                                 />
+                              </td>
+                              <td className="p-3">
+                                 <textarea
+                                    className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-1.5 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 min-h-[80px] resize-none"
+                                    value={measure.actionRequired}
+                                    onChange={e => {
+                                       const updated = (formData.safetyMeasures || []).map(m => m.id === measure.id ? { ...m, actionRequired: e.target.value } : m);
+                                       updateField('safetyMeasures', updated);
+                                    }}
+                                    disabled={isReadonly}
+                                    placeholder={t('electrical.ph.action')}
+                                 />
+                              </td>
+                              {!isReadonly && (
+                                 <td className="p-3 text-center">
+                                    <button
+                                       onClick={() => updateField('safetyMeasures', (formData.safetyMeasures || []).filter(m => m.id !== measure.id))}
+                                       className="text-gray-400 hover:text-red-500 transition-colors"
+                                    >
+                                       <Trash2 size={18} />
+                                    </button>
+                                 </td>
+                              )}
+                           </tr>
+                        ))}
+                        {(formData.safetyMeasures || []).length === 0 && (
+                           <tr>
+                              <td colSpan={3} className="px-4 py-8 text-center text-gray-400 text-sm">
+                                 Нажмите "Добавить" чтобы добавить меры безопасности
+                              </td>
+                           </tr>
+                        )}
+                     </tbody>
+                  </table>
+               </div>
+            </div>
+          </div>
+
+          {/* Section: Отдельные указания и средства защиты */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+             <h3 className="font-bold text-gray-900 mb-6 uppercase text-sm tracking-wider border-b-2 border-slate-900 pb-2 flex items-center gap-2">
+                <ClipboardList size={24} className="text-blue-600" />{t('electrical.sec.instructions')}</h3>
+             <div className="space-y-4">
+                <div>
+                   <textarea
+                      className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 transition-all min-h-[80px] resize-none"
+                      placeholder={t('electrical.ph.instructions')}
+                      value={formData.separateInstructions || ''}
+                      onChange={e => updateField('separateInstructions', e.target.value)}
+                      disabled={isReadonly}
+                   />
+                </div>
+
+             </div>
+          </div>
+
+          {/* Section: Наряд выдал */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+             <h3 className="font-bold text-gray-900 mb-6 uppercase text-sm tracking-wider border-b-2 border-slate-900 pb-2 flex items-center gap-2">
+                <PenTool size={24} className="text-blue-600" />{t('electrical.sec.issuer')}</h3>
+             <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.date')}</label>
+                      <input
+                         type="date"
+                         className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                         value={formData.issuerDate}
+                         onChange={e => updateField('issuerDate', e.target.value)}
+                         disabled={isReadonly}
+                      />
+                   </div>
+                   <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.time')}</label>
+                      <input
+                         type="time"
+                         className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                         value={formData.issuerTime || ''}
+                         onChange={e => updateField('issuerTime', e.target.value)}
+                         disabled={isReadonly}
+                      />
+                   </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.signature')}</label>
+                      <input
+                         className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                         placeholder={t('electrical.ph.signature')}
+                         value={formData.issuerId || ''}
+                         onChange={e => updateField('issuerId', e.target.value)}
+                         disabled={isReadonly}
+                      />
+                   </div>
+                   <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.lastName')}</label>
+                      <input
+                         className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                         placeholder={t('electrical.ph.signature')}
+                         value={formData.issuerLastName || ''}
+                         onChange={e => updateField('issuerLastName', e.target.value)}
+                         disabled={isReadonly}
+                      />
+                   </div>
+                </div>
+             </div>
+          </div>
+
+          {/* Section: Наряд продлил / Наряд уақытын создым */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+             <div className="flex justify-between items-center mb-4">
+                <h3 className="font-bold text-gray-900 uppercase text-sm tracking-wider flex items-center gap-2">
+                   <Clock size={24} className="text-orange-500" />{t('electrical.sec.extensions')}</h3>
+                {!isReadonly && (
+                   <button
+                      onClick={() => updateField('extensions', [...(formData.extensions || []), { id: Date.now().toString(), extensionDate: '', extensionTime: '', extensionSignature: '', extensionLastName: '' }])}
+                      className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 transition-colors shadow-sm"
+                   >
+                      <Plus size={18}/>{t('electrical.btn.addExtension')}</button>
+                )}
+             </div>
+             <div>
+                {(formData.extensions || []).length === 0 ? (
+                   <p className="text-gray-400 text-sm italic text-center py-4">{t('electrical.misc.noExtensions')}</p>
+                ) : (
+                   <div className="space-y-4">
+                      {(formData.extensions || []).map((ext, index) => (
+                         <div key={ext.id} className="border border-gray-200 rounded-lg p-4 relative">
+                            {!isReadonly && (
+                               <button
+                                  onClick={() => {
+                                     const updated = (formData.extensions || []).filter((_, i) => i !== index);
+                                     updateField('extensions', updated);
+                                  }}
+                                  className="absolute top-2 right-2 text-gray-400 hover:text-red-500 transition-colors"
+                               >
+                                  <Trash2 size={16} />
+                               </button>
+                            )}
+                            <div className="text-xs font-medium text-gray-400 mb-3">{t('electrical.misc.extension')} {index + 1}</div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                               <div>
+                                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.date')}</label>
+                                  <input
+                                     type="date"
+                                     className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                                     value={ext.extensionDate}
+                                     onChange={e => {
+                                        const updated = [...(formData.extensions || [])];
+                                        updated[index] = { ...ext, extensionDate: e.target.value };
+                                        updateField('extensions', updated);
+                                     }}
+                                     disabled={isReadonly}
+                                  />
+                               </div>
+                               <div>
+                                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.time')}</label>
+                                  <input
+                                     type="time"
+                                     className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                                     value={ext.extensionTime}
+                                     onChange={e => {
+                                        const updated = [...(formData.extensions || [])];
+                                        updated[index] = { ...ext, extensionTime: e.target.value };
+                                        updateField('extensions', updated);
+                                     }}
+                                     disabled={isReadonly}
+                                  />
+                               </div>
+                               <div>
+                                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.signature')}</label>
+                                  <input
+                                     className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                                     placeholder={t('electrical.ph.signature')}
+                                     value={ext.extensionSignature}
+                                     onChange={e => {
+                                        const updated = [...(formData.extensions || [])];
+                                        updated[index] = { ...ext, extensionSignature: e.target.value };
+                                        updateField('extensions', updated);
+                                     }}
+                                     disabled={isReadonly}
+                                  />
+                               </div>
+                               <div>
+                                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.lastName')}</label>
+                                  <input
+                                     className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                                     placeholder={t('electrical.ph.signature')}
+                                     value={ext.extensionLastName}
+                                     onChange={e => {
+                                        const updated = [...(formData.extensions || [])];
+                                        updated[index] = { ...ext, extensionLastName: e.target.value };
+                                        updateField('extensions', updated);
+                                     }}
+                                     disabled={isReadonly}
+                                  />
+                               </div>
+                            </div>
+                         </div>
+                      ))}
+                   </div>
+                )}
+             </div>
+          </div>
+
+          {/* Section 6: Admission Permission - Жіберуге рұқсат беру / Разрешение на допуск */}
+         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <h3 className="font-bold text-gray-900 mb-6 uppercase text-sm tracking-wider border-b-2 border-slate-900 pb-2 flex items-center gap-2">
+               <FileCheck size={24} className="text-blue-600" />{t('electrical.sec.admission')}</h3>
+            <div className="space-y-6">
+               {/* Permission Table */}
+               <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <table className="w-full">
+                     <thead className="bg-gray-50">
+                        <tr>
+                           <th className="px-3 py-2 text-left text-sm font-medium text-gray-600 border-b border-r border-gray-200">
+                              <div className="text-xs leading-relaxed">
+                                 {t('electrical.th.gotPermission')}
+                              </div>
+                           </th>
+                           <th className="px-3 py-1.5 text-center text-gray-500 font-semibold text-sm border-b border-r border-gray-200 w-48">
+                              <div>{t('electrical.th.dateTime')}</div>
+                           </th>
+                           <th className="px-3 py-1.5 text-center text-gray-500 font-semibold text-sm border-b border-r border-gray-200 w-48">
+                              <div>{t('electrical.th.fromWhom')}</div>
+                           </th>
+                           <th className="px-3 py-1.5 text-center text-gray-500 font-semibold text-sm border-b border-gray-200 w-32">
+                              <div>{t('electrical.labels.admittingPerson')}<br /><span className="text-[10px] text-gray-400 font-normal">{t('electrical.misc.signatureNote')}</span></div>
+                           </th>
+                        </tr>
+                     </thead>
+                     <tbody>
+                        <tr className="hover:bg-gray-50/50">
+                           <td className="p-3 border-r border-gray-200"></td>
+                           <td className="p-3 border-r border-gray-200">
+                              <input
+                                 type="datetime-local"
+                                 className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                                 value={formData.admissionDateTime || ''}
+                                 onChange={e => updateField('admissionDateTime', e.target.value)}
+                                 disabled={isReadonly}
+                              />
+                           </td>
+                           <td className="p-3 border-r border-gray-200">
+                              <input
+                                 className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                                 placeholder={t('electrical.ph.position')}
+                                 value={formData.admissionFromWhom || ''}
+                                 onChange={e => updateField('admissionFromWhom', e.target.value)}
+                                 disabled={isReadonly}
+                              />
+                           </td>
+                           <td className="p-3 text-center">
+                              <input
+                                 className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 text-center"
+                                 placeholder={t('electrical.ph.signature')}
+                                 value={formData.admissionSignature || ''}
+                                 onChange={e => updateField('admissionSignature', e.target.value)}
+                                 disabled={isReadonly}
+                              />
+                           </td>
+                        </tr>
+                     </tbody>
+                  </table>
+               </div>
+
+
+               {/* Signatures */}
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-gray-100">
+                  <div>
+                     <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.admittingPerson')}</label>
+                     <div className="flex gap-2 items-center">
+                        <input
+                           className="flex-1 bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                           placeholder={t('electrical.ph.fio')}
+                           value={formData.admissionPermitSigner || ''}
+                           onChange={e => updateField('admissionPermitSigner', e.target.value)}
+                           disabled={isReadonly}
+                        />
+                        <span className="text-xs text-gray-400">{t('electrical.misc.signatureNote')}</span>
+                     </div>
+                  </div>
+                  <div>
+                     <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        <span className="text-xs">{t('electrical.labels.respManagerProducer')}</span>
+                        <br />
+                        <span className="text-xs text-gray-500">{t('electrical.labels.respManagerProducer')}</span>
+                     </label>
+                     <div className="flex gap-2 items-center">
+                        <input
+                           className="flex-1 bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400"
+                           placeholder={t('electrical.ph.fio')}
+                           value={formData.responsibleWorkManagerSigner || ''}
+                           onChange={e => updateField('responsibleWorkManagerSigner', e.target.value)}
+                           disabled={isReadonly}
+                        />
+                        <span className="text-xs text-gray-400">{t('electrical.misc.signatureNote')}</span>
+                     </div>
+                  </div>
+               </div>
+            </div>
+         </div>
+
+      </div>
+   );
+
+
+   const renderLifecycleTab = () => (
+      <div className="space-y-12 font-['PT_Sans']  pb-20">
+
+         {/* Voltage/Workplace Ready - first on reverse side */}
+         <section className="bg-white p-8 rounded-2xl border-2 border-slate-900 shadow-sm">
+            <h3 className="text-sm font-black uppercase text-slate-800 mb-6 flex items-center gap-3">
+               <Zap size={20} className="text-blue-600" />{t('electrical.sec.voltage')}</h3>
+            <textarea
+               className="w-full border-b-2 border-slate-200 py-4 text-base font-bold outline-none focus:border-blue-600 resize-none min-h-[100px] leading-relaxed"
+               placeholder="Укажите токопроводящие части под напряжением..."
+               value={formData.voltageRemainsAt}
+               onChange={e => updateField('voltageRemainsAt', e.target.value)}
+               disabled={!isReadonly && activeTab !== 'lifecycle'}
+            />
+
+            <div className="grid grid-cols-2 gap-12 mt-8 pt-8 border-t border-slate-100">
+               <div className="flex flex-col gap-2">
+                  <span className="text-[10px] font-black uppercase text-slate-400">{t('electrical.labels.admittingPerson')}</span>
+                  <div className="flex items-end gap-3">
+                     <div className="flex-1 border-b border-slate-900 text-sm font-bold pb-1">{formData.admittingAuthorityId}</div>
+                     <div className="text-[10px] italic text-blue-600 font-bold">ПОДПИСАНО ЭЦП</div>
+                  </div>
+               </div>
+               <div className="flex flex-col gap-2">
+                  <span className="text-[10px] font-black uppercase text-slate-400">{t('electrical.labels.respManager')}</span>
+                  <div className="flex items-end gap-3">
+                     <div className="flex-1 border-b border-slate-900 text-sm font-bold pb-1">{formData.workManagerId}</div>
+                     <div className="text-[10px] italic text-blue-600 font-bold">ПОДПИСАНО ЭЦП</div>
+                  </div>
+               </div>
+            </div>
+         </section>
+
+         {/* Backside Header */}
+         <div className="bg-slate-900 text-white p-10 rounded-3xl shadow-xl flex justify-between items-center mb-12">
+            <div className="space-y-2">
+               <h2 className="text-3xl font-black italic tracking-tighter">ОБОРОТНАЯ СТОРОНА / 2-БЕТ</h2>
+               <p className="text-slate-400 text-sm font-bold uppercase tracking-widest">Жұмыс барысын бақылау және допуск журналы</p>
+            </div>
+            <div className="text-right">
+               <div className="text-4xl font-black text-blue-400">№ 45-2024/Э</div>
+            </div>
+         </div>
+
+         {/* Daily Admission Table (Screenshot 3) */}
+         <section className="space-y-4">
+            <div className="flex justify-between items-center">
+               <h3 className="text-sm font-black uppercase text-slate-800 tracking-tight flex items-center gap-3">
+                  <Calendar size={20} className="text-blue-600" />
+                  Күн сайынғы жұмысқа рұқсаттама және оның аяқталу уақыты / Ежедневный допуск к работе и время ее окончания
+               </h3>
+               <button onClick={() => updateLifecycle(prev => ({ ...prev, dailyAdmissions: [...prev.dailyAdmissions, { id: Date.now().toString(), workPlace: '', admissionDateTime: new Date().toISOString(), admittingSignature: 'DIGITAL', producerSignature: 'DIGITAL', finishDateTime: '', producerFinishSignature: '' }] }))} className="bg-emerald-600 text-white text-[10px] px-4 py-2 rounded-full font-black uppercase tracking-widest shadow-lg shadow-emerald-100 hover:scale-105 transition-all">
+                  + Добавить запись
+               </button>
+            </div>
+            <div className="border-[2px] border-slate-900 overflow-hidden shadow-sm">
+               <table className="w-full text-[10px] text-center border-collapse">
+                  <thead className="bg-slate-50 font-black">
+                     <tr>
+                        <th className="p-4 border border-slate-900 w-[20%]">Жұмыс орнының атауы / Наименование рабочего места</th>
+                        <th className="p-4 border border-slate-900 w-[12%]">Күні, уақыты / Дата, время</th>
+                        <th className="p-4 border border-slate-900 w-[25%] leading-tight">Бригада мақсатты нұсқаулық алды және әзірленген жұмыс орнына баруға рұқсаттама берілді / Бригада получила целевой инструктаж и допущена на подготовленное рабочее место</th>
+                        <th className="p-4 border border-slate-900 w-[18%]">Жұмыс аяқталды, бригада шығарылды / Работа закончена, бригада удалена</th>
+                        <th className="p-4 border border-slate-900 w-[12%]">Күні, уақыты / Дата, время</th>
+                        <th className="p-4 border border-slate-900 w-[13%]">Жұмыс жүргізушінің қолы / Подпись производителя работ</th>
+                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-900">
+                     {(lifecycle.dailyAdmissions || []).map((adm) => (
+                        <tr key={adm.id} className="h-16">
+                           <td className="border border-slate-900 px-3"><input className="w-full bg-transparent text-center font-bold outline-none" defaultValue={adm.workPlace} /></td>
+                           <td className="border border-slate-900 px-3 font-mono font-bold">{new Date(adm.admissionDateTime).toLocaleString()}</td>
+                           <td className="border border-slate-900 px-3">
+                              <div className="flex flex-col gap-1 text-[9px] text-blue-600 font-bold italic">
+                                 <span>ЭЦП Допускающего</span>
+                                 <span>ЭЦП Производителя</span>
+                              </div>
+                           </td>
+                           <td className="border border-slate-900 font-bold text-slate-400">В процессе...</td>
+                           <td className="border border-slate-900"></td>
+                           <td className="border border-slate-900"></td>
+                        </tr>
+                     ))}
+                     {(lifecycle.dailyAdmissions || []).length === 0 && <tr className="h-20"><td colSpan={6} className="text-slate-300 italic font-bold">Записи отсутствуют</td></tr>}
+                  </tbody>
+               </table>
+            </div>
+         </section>
+
+         {/* Brigade Changes (Screenshot 3) */}
+         <section className="space-y-4">
+            <div className="flex justify-between items-center">
+               <h3 className="text-sm font-black uppercase text-slate-800 flex items-center gap-3">
+                  <Users size={20} className="text-blue-600" />
+                  Бригада құрамындағы өзгерістер / Изменения в составе бригады
+               </h3>
+                <button onClick={() => updateLifecycle(prev => ({ ...prev, brigadeChanges: [...prev.brigadeChanges, { id: Date.now().toString(), introducedMember: '', introducedMemberGroup: '', removedMember: '', removedMemberGroup: '', dateTime: new Date().toISOString(), authorizedBy: '' }] }))} className="bg-slate-800 text-white text-[10px] px-4 py-2 rounded-full font-black uppercase tracking-widest hover:bg-slate-900 transition-all">
+                  + Добавить изменение
+               </button>
+            </div>
+            <div className="border-[2px] border-slate-900 overflow-hidden shadow-sm">
+               <table className="w-full text-[10px] text-center border-collapse">
+                  <thead className="bg-slate-50 font-black">
+                     <tr>
+                        <th className="p-4 border border-slate-900 w-[30%] leading-tight">Бригада құрамына енгізілді / Введен в состав бригады (тегі, аты-жөні, тобы)</th>
+                        <th className="p-4 border border-slate-900 w-[30%] leading-tight">Бригада құрамынан шығарылды / Выведен из состава бригады (тегі, аты-жөні, тобы)</th>
+                        <th className="p-4 border border-slate-900 w-[15%]">Күні, уақыты / Дата, время</th>
+                        <th className="p-4 border border-slate-900 w-[25%] leading-tight">Рұқсат бердім / Разрешил (қолы / подпись) (тегі, аты-жөні, инициалы)</th>
+                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-900">
+                      {(lifecycle.brigadeChanges || []).map(change => (
+                         <tr key={change.id} className="h-14">
+                            <td className="border border-slate-900 px-3">
+                               <div className="flex gap-1 items-center justify-center">
+                                  <input className="w-full bg-transparent text-center font-bold outline-none" defaultValue={change.introducedMember} />
+                                  {change.introducedMemberGroup && <span className="text-[8px] font-black text-blue-600">({change.introducedMemberGroup} гр.)</span>}
+                               </div>
+                            </td>
+                            <td className="border border-slate-900 px-3">
+                               <div className="flex gap-1 items-center justify-center">
+                                  <input className="w-full bg-transparent text-center font-bold outline-none" defaultValue={change.removedMember} />
+                                  {change.removedMemberGroup && <span className="text-[8px] font-black text-blue-600">({change.removedMemberGroup} гр.)</span>}
+                               </div>
+                            </td>
+                           <td className="border border-slate-900 px-3 font-mono font-bold">{new Date(change.dateTime).toLocaleString()}</td>
+                           <td className="border border-slate-900 font-bold italic text-blue-600">ЭЦП Руководителя</td>
+                        </tr>
+                     ))}
+                  </tbody>
+               </table>
+            </div>
+         </section>
+
+         {/* Target Briefing Registration (Screenshot 4) */}
+         <section className="bg-white p-10 rounded-3xl border-2 border-slate-100 shadow-2xl space-y-8">
+            <h3 className="text-xl font-black uppercase text-center border-b-4 border-blue-600 pb-4 w-fit mx-auto">
+               Алғашқы рұқсаттама кезінде мақсатты нұсқаулықты тіркеу / Регистрация целевого инструктажа при первичном допуске
+            </h3>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-slate-200 border border-slate-200 overflow-hidden rounded-xl">
+               {/* Column 1: Who gave briefing */}
+               <div className="bg-white p-8 space-y-8">
+                  <h4 className="text-sm font-black uppercase text-slate-400 border-b pb-2">{t('electrical.labels.instructed')}</h4>
+
+                  <div className="space-y-6">
+                     <div className="pb-6 border-b border-slate-100">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">{t('electrical.th.issuerPerson')}</span>
+                        <div className="text-base font-black mt-2">{formData.issuerId}</div>
+                        <div className="mt-2 text-[10px] font-black italic text-emerald-600">ПОДПИСАНО ЭЦП</div>
+                     </div>
+                     <div className="pb-6 border-b border-slate-100">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">{t('electrical.labels.admittingPerson')}</span>
+                        <div className="text-base font-black mt-2">{formData.admittingAuthorityId}</div>
+                        <div className="mt-2 text-[10px] font-black italic text-emerald-600">ПОДПИСАНО ЭЦП</div>
+                     </div>
+                  </div>
+               </div>
+
+               {/* Column 2: Who received briefing */}
+               <div className="bg-white p-8 space-y-8">
+                  <h4 className="text-sm font-black uppercase text-slate-400 border-b pb-2">{t('electrical.labels.receivedBrief')}</h4>
+                  <div className="space-y-6">
+                     <div className="pb-6 border-b border-slate-100">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">{t('electrical.labels.respManagerProducer')}</span>
+                        <div className="text-base font-black mt-2">{formData.workManagerId}</div>
+                        <div className="mt-2 text-[10px] font-black italic text-emerald-600">ПОДПИСАНО ЭЦП</div>
+                     </div>
+                     <div className="pb-6 border-b border-slate-100">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">{t('electrical.labels.brigadeList')}</span>
+                        <ul className="mt-2 space-y-2">
+                           {(formData.brigadeMembers || []).map((m, i) => {
+                              const name = typeof m === 'string' ? m : (m as any)?.name || '';
+                              if (!name) return null;
+                              return (
+                                 <li key={i} className="flex items-center justify-between text-sm font-bold border-l-4 border-blue-500 pl-3 py-1 bg-slate-50">
+                                    {name}
+                                    <span className="text-[9px] text-emerald-600">ЭЦП OK</span>
+                                 </li>
+                              );
+                           })}
+                        </ul>
+                     </div>
+                  </div>
+               </div>
+            </div>
+         </section>
+      </div>
+   );
+
+   // Вкладки степпера (в режиме просмотра добавляется «Журнал допуска»)
+   const TABS: { id: TabKey; label: string }[] = [
+     { id: 'main', label: t('electrical.tabs.main') },
+     { id: 'backside', label: t('electrical.tabs.backside') },
+     ...(isReadonly ? [{ id: 'lifecycle' as TabKey, label: t('electrical.tabs.lifecycle') }] : []),
+     { id: 'risks', label: t('electrical.tabs.risks') },
+     { id: 'loto', label: t('electrical.tabs.loto') },
+   ];
+
+   return (
+      <div className="w-full space-y-6 ">
+         {/* Заголовок формы (передаётся снаружи) */}
+         {header}
+         {/* STEPPER — общий компонент форм нарядов */}
+         <Stepper
+            steps={TABS}
+            currentIdx={Math.max(0, TABS.findIndex(x => x.id === activeTab))}
+            onSelect={(id) => setActiveTab(id as TabKey)}
+         />
+
+         {/* FORM CONTENT */}
+         <div className="w-full">
+            {activeTab === 'main' && renderMainTab()}
+
+            {activeTab === 'backside' && (
+               <div className="space-y-6 ">
+                  {/* Voltage/Workplace Ready - first on reverse side */}
+                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                     <h3 className="font-bold text-gray-900 mb-6 text-sm tracking-wider border-b-2 border-slate-900 pb-2 flex items-center gap-2">
+                        <Zap size={24} className="text-yellow-500" />{t('electrical.sec.voltage')}</h3>
+                     <div>
+                        <textarea
+                           className="w-full bg-[#f7f7f7] border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500 transition-colors placeholder-gray-400 min-h-[100px] resize-none"
+                           placeholder={t('electrical.ph.voltage')}
+                           value={formData.voltageRemainsAt || ''}
+                           onChange={e => updateField('voltageRemainsAt', e.target.value)}
+                           disabled={isReadonly}
+                        />
+                     </div>
+                  </div>
+
+                  {/* Daily Admission Section */}
+                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                     <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-gray-900 uppercase text-sm tracking-wider flex items-center gap-2">
+                           <Calendar size={24} className="text-blue-600" />
+                           {t('electrical.sec.daily')}
+                        </h3>
+                        {!isReadonly && (
+                           <button
+                              onClick={() => updateField('dailyAdmissions', [...(formData.dailyAdmissions || []), { id: Date.now().toString(), workplaceName: '', admissionDateTime: '', admitterSignature: '', producerSignature: '', endDateTime: '', producerEndSignature: '' }])}
+                              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 transition-colors shadow-sm"
+                           >
+                              <Plus size={18}/>{t('electrical.btn.addRecord')}</button>
+                        )}
+                     </div>
+
+                     <div>
+                        {/* Column Headers */}
+                        <div className="grid grid-cols-2 gap-4 mb-4">
+                           <div className="bg-blue-50 rounded-lg p-3 text-center">
+                              <p className="text-xs font-semibold text-blue-800">{t('electrical.th.brigadeAdmitted')}</p>
+                           </div>
+                           <div className="bg-green-50 rounded-lg p-3 text-center">
+                              <p className="text-xs font-semibold text-green-800">{t('electrical.th.workFinished')}</p>
+                           </div>
+                        </div>
+
+                        {/* Table */}
+                        <div className="border border-gray-200 rounded-lg overflow-hidden">
+                           <table className="w-full text-sm">
+                              <thead className="bg-gray-50">
+                                 <tr>
+                                    <th rowSpan={2} className="px-3 py-1.5 text-left font-medium text-gray-600 border-b border-r border-gray-200 w-[15%]">
+                                       <div>{t('electrical.th.workplace')}</div>
+                                    </th>
+                                    <th rowSpan={2} className="px-3 py-1.5 text-center font-medium text-gray-600 border-b border-r border-gray-200 w-[10%]">
+                                       <div>{t('electrical.th.dateTime')}</div>
+                                    </th>
+                                    <th colSpan={2} className="px-3 py-1.5 text-center font-medium text-gray-600 border-b border-r border-gray-200">
+                                       <div>{t('electrical.th.signatures')}</div>
+                                    </th>
+                                    <th rowSpan={2} className="px-3 py-1.5 text-center font-medium text-gray-600 border-b border-r border-gray-200 w-[10%]">
+                                       <div>{t('electrical.th.dateTime')}</div>
+                                    </th>
+                                    <th rowSpan={2} className="px-3 py-1.5 text-center font-medium text-gray-600 border-b border-r border-gray-200 w-[18%]">
+                                       <div>{t('electrical.th.producerSig')}</div>
+                                    </th>
+                                    {!isReadonly && <th rowSpan={2} className="w-10 border-b border-gray-200"></th>}
+                                 </tr>
+                                 <tr>
+                                    <th className="px-3 py-1.5 text-center font-medium text-gray-600 border-b border-r border-gray-200 w-[12%]">
+                                       <div>{t('electrical.th.admitterSig')}</div>
+                                    </th>
+                                    <th className="px-3 py-1.5 text-center font-medium text-gray-600 border-b border-r border-gray-200 w-[15%]">
+                                       <div>{t('electrical.th.producerSig')}</div>
+                                    </th>
+                                 </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                 {(formData.dailyAdmissions || []).map((admission, index) => (
+                                    <tr key={admission.id} className="hover:bg-gray-50/50">
+                                       <td className="p-2 border-r border-gray-200">
+                                          <input
+                                             className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                             placeholder="Рабочее место..."
+                                             value={admission.workplaceName || ''}
+                                             onChange={e => {
+                                                const updated = [...(formData.dailyAdmissions || [])];
+                                                updated[index] = { ...updated[index], workplaceName: e.target.value };
+                                                updateField('dailyAdmissions', updated);
+                                             }}
+                                             disabled={isReadonly}
+                                          />
+                                       </td>
+                                       <td className="p-2 border-r border-gray-200">
+                                          <input
+                                             type="datetime-local"
+                                             className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                             value={admission.admissionDateTime || ''}
+                                             onChange={e => {
+                                                const updated = [...(formData.dailyAdmissions || [])];
+                                                updated[index] = { ...updated[index], admissionDateTime: e.target.value };
+                                                updateField('dailyAdmissions', updated);
+                                             }}
+                                             disabled={isReadonly}
+                                          />
+                                       </td>
+                                       <td className="p-2 border-r border-gray-200">
+                                          <input
+                                             className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                             placeholder={t('electrical.ph.fio')}
+                                             value={admission.admitterSignature || ''}
+                                             onChange={e => {
+                                                const updated = [...(formData.dailyAdmissions || [])];
+                                                updated[index] = { ...updated[index], admitterSignature: e.target.value };
+                                                updateField('dailyAdmissions', updated);
+                                             }}
+                                             disabled={isReadonly}
+                                          />
+                                       </td>
+                                       <td className="p-2 border-r border-gray-200">
+                                          <input
+                                             className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                             placeholder={t('electrical.ph.fio')}
+                                             value={admission.producerSignature || ''}
+                                             onChange={e => {
+                                                const updated = [...(formData.dailyAdmissions || [])];
+                                                updated[index] = { ...updated[index], producerSignature: e.target.value };
+                                                updateField('dailyAdmissions', updated);
+                                             }}
+                                             disabled={isReadonly}
+                                          />
+                                       </td>
+                                       <td className="p-2 border-r border-gray-200">
+                                          <input
+                                             type="datetime-local"
+                                             className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                             value={admission.endDateTime || ''}
+                                             onChange={e => {
+                                                const updated = [...(formData.dailyAdmissions || [])];
+                                                updated[index] = { ...updated[index], endDateTime: e.target.value };
+                                                updateField('dailyAdmissions', updated);
+                                             }}
+                                             disabled={isReadonly}
+                                          />
+                                       </td>
+                                       <td className="p-2">
+                                          <input
+                                             className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                             placeholder={t('electrical.ph.fio')}
+                                             value={admission.producerEndSignature || ''}
+                                             onChange={e => {
+                                                const updated = [...(formData.dailyAdmissions || [])];
+                                                updated[index] = { ...updated[index], producerEndSignature: e.target.value };
+                                                updateField('dailyAdmissions', updated);
+                                             }}
+                                             disabled={isReadonly}
+                                          />
+                                       </td>
+                                       {!isReadonly && (
+                                          <td className="p-2 text-center">
+                                             <button
+                                                onClick={() => updateField('dailyAdmissions', (formData.dailyAdmissions || []).filter(a => a.id !== admission.id))}
+                                                className="text-gray-400 hover:text-red-500 transition-colors"
+                                             >
+                                                <Trash2 size={16} />
+                                             </button>
+                                          </td>
+                                       )}
+                                    </tr>
+                                 ))}
+                                 {(formData.dailyAdmissions || []).length === 0 && (
+                                    <tr>
+                                       <td colSpan={isReadonly ? 6 : 7} className="px-4 py-8 text-center text-gray-400 text-sm">
+                                          Нажмите "Добавить запись" чтобы добавить ежедневный допуск
+                                       </td>
+                                    </tr>
+                                 )}
+                              </tbody>
+                           </table>
+                        </div>
+                     </div>
+                  </div>
+
+                  {/* Brigade Changes Section - Бригада құрамындағы өзгерістер */}
+                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                     <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-gray-900 uppercase text-sm tracking-wider flex items-center gap-2">
+                           <Users size={24} className="text-blue-600" />
+                           {t('electrical.sec.brigadeChanges')}
+                        </h3>
+                        {!isReadonly && (
+                           <button
+                               onClick={() => updateField('brigadeChanges', [...(formData.brigadeChanges || []), { id: Date.now().toString(), introducedMember: '', introducedMemberGroup: '', removedMember: '', removedMemberGroup: '', dateTime: '', authorizedBy: '' }])}
+                              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 transition-colors shadow-sm"
+                           >
+                              <Plus size={18}/>{t('electrical.btn.addChange')}</button>
+                        )}
+                     </div>
+
+                     <div>
+                        <div className="border border-gray-200 rounded-lg overflow-hidden">
+                           <table className="w-full text-sm">
+                              <thead className="bg-gray-50">
+                                 <tr>
+                                    <th className="px-3 py-1.5 text-left font-medium text-gray-600 border-b border-r border-gray-200 w-[28%]">
+                                       <div>{t('electrical.th.introduced')}</div>
+                                    </th>
+                                    <th className="px-3 py-1.5 text-left font-medium text-gray-600 border-b border-r border-gray-200 w-[28%]">
+                                       <div>{t('electrical.th.removed')}</div>
+                                    </th>
+                                    <th className="px-3 py-1.5 text-center font-medium text-gray-600 border-b border-r border-gray-200 w-[14%]">
+                                       <div>{t('electrical.th.dateTime')}</div>
+                                    </th>
+                                    <th className="px-3 py-1.5 text-center font-medium text-gray-600 border-b border-gray-200 w-[25%]">
+                                       <div>{t('electrical.th.allowed')}</div>
+                                    </th>
+                                    {!isReadonly && <th className="w-10 border-b border-gray-200"></th>}
+                                 </tr>
+                              </thead>
+                               <tbody className="divide-y divide-gray-100">
+                                  {(formData.brigadeChanges || []).map((change, index) => (
+                                     <tr key={change.id} className="hover:bg-gray-50/50">
+                                        <td className="p-2 border-r border-gray-200">
+                                           <div className="flex gap-1">
+                                              <input
+                                                 className="flex-1 bg-[#f7f7f7] border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                                 placeholder={t('electrical.ph.fio')}
+                                                 value={change.introducedMember || ''}
+                                                 onChange={e => {
+                                                    const updated = [...(formData.brigadeChanges || [])];
+                                                    updated[index] = { ...updated[index], introducedMember: e.target.value };
+                                                    updateField('brigadeChanges', updated);
+                                                 }}
+                                                 disabled={isReadonly}
+                                              />
+                                              <select
+                                                 className="w-14 bg-[#f7f7f7] border border-gray-300 rounded px-1 py-2 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 transition-colors"
+                                                 value={change.introducedMemberGroup || ''}
+                                                 onChange={e => {
+                                                    const updated = [...(formData.brigadeChanges || [])];
+                                                    updated[index] = { ...updated[index], introducedMemberGroup: e.target.value };
+                                                    updateField('brigadeChanges', updated);
+                                                 }}
+                                                 disabled={isReadonly}
+                                              >
+                                                 <option value="">{t('electrical.misc.group')}</option>
+                                                 <option value="1">I</option>
+                                                 <option value="2">II</option>
+                                                 <option value="3">III</option>
+                                                 <option value="4">IV</option>
+                                                 <option value="5">V</option>
+                                              </select>
+                                           </div>
+                                        </td>
+                                        <td className="p-2 border-r border-gray-200">
+                                           <div className="flex gap-1">
+                                              <input
+                                                 className="flex-1 bg-[#f7f7f7] border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                                 placeholder={t('electrical.ph.fio')}
+                                                 value={change.removedMember || ''}
+                                                 onChange={e => {
+                                                    const updated = [...(formData.brigadeChanges || [])];
+                                                    updated[index] = { ...updated[index], removedMember: e.target.value };
+                                                    updateField('brigadeChanges', updated);
+                                                 }}
+                                                 disabled={isReadonly}
+                                              />
+                                              <select
+                                                 className="w-14 bg-[#f7f7f7] border border-gray-300 rounded px-1 py-2 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 transition-colors"
+                                                 value={change.removedMemberGroup || ''}
+                                                 onChange={e => {
+                                                    const updated = [...(formData.brigadeChanges || [])];
+                                                    updated[index] = { ...updated[index], removedMemberGroup: e.target.value };
+                                                    updateField('brigadeChanges', updated);
+                                                 }}
+                                                 disabled={isReadonly}
+                                              >
+                                                 <option value="">{t('electrical.misc.group')}</option>
+                                                 <option value="1">I</option>
+                                                 <option value="2">II</option>
+                                                 <option value="3">III</option>
+                                                 <option value="4">IV</option>
+                                                 <option value="5">V</option>
+                                              </select>
+                                           </div>
+                                        </td>
+                                       <td className="p-2 border-r border-gray-200">
+                                          <input
+                                             type="datetime-local"
+                                             className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                             value={change.dateTime || ''}
+                                             onChange={e => {
+                                                const updated = [...(formData.brigadeChanges || [])];
+                                                updated[index] = { ...updated[index], dateTime: e.target.value };
+                                                updateField('brigadeChanges', updated);
+                                             }}
+                                             disabled={isReadonly}
+                                          />
+                                       </td>
+                                       <td className="p-2">
+                                          <input
+                                             className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                             placeholder={t('electrical.ph.fio')}
+                                             value={change.authorizedBy || ''}
+                                             onChange={e => {
+                                                const updated = [...(formData.brigadeChanges || [])];
+                                                updated[index] = { ...updated[index], authorizedBy: e.target.value };
+                                                updateField('brigadeChanges', updated);
+                                             }}
+                                             disabled={isReadonly}
+                                          />
+                                       </td>
+                                       {!isReadonly && (
+                                          <td className="p-2 text-center">
+                                             <button
+                                                onClick={() => updateField('brigadeChanges', (formData.brigadeChanges || []).filter(c => c.id !== change.id))}
+                                                className="text-gray-400 hover:text-red-500 transition-colors"
+                                             >
+                                                <Trash2 size={16} />
+                                             </button>
+                                          </td>
+                                       )}
+                                    </tr>
+                                 ))}
+                                 {(formData.brigadeChanges || []).length === 0 && (
+                                    <tr>
+                                       <td colSpan={isReadonly ? 4 : 5} className="px-4 py-8 text-center text-gray-400 text-sm">
+                                          Нажмите "Добавить изменение" чтобы добавить изменения в составе бригады
+                                       </td>
+                                    </tr>
+                                 )}
+                              </tbody>
+                           </table>
+                        </div>
+                     </div>
+                  </div>
+
+                  {/* Target Briefing Registration - Алғашқы рұқсаттама кезінде мақсатты нұсқаулықты тіркеу */}
+                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                     <h3 className="font-bold text-gray-900 mb-1 text-sm tracking-wider border-b-2 border-slate-900 pb-2 flex items-center gap-2">
+                        <PenTool size={24} className="text-orange-500" />
+                        Алғашқы рұқсаттама кезінде мақсатты нұсқаулықты тіркеу
+                     </h3>
+                     <p className="text-sm text-gray-500 mb-6">{t('electrical.sec.briefing')}</p>
+
+                     <div>
+                        <div className="grid grid-cols-2 gap-6">
+                           {/* Left Column - Инструктаж провел */}
+                           <div className="space-y-4">
+                              <div className="bg-blue-50 rounded-lg p-3 text-center">
+                                 <p className="text-xs font-semibold text-blue-800">{t('electrical.labels.instructed')}</p>
+                                 <p className="text-[10px] text-blue-600">{t('electrical.labels.instructed')}</p>
+                              </div>
+
+                              <div className="space-y-4">
+                                 <div className="border border-gray-200 rounded-lg p-4">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.th.issuerPerson')}</label>
+                                    <input
+                                       className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-3 py-1.5 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors mb-2"
+                                       placeholder="тегі, аты-жөні / фамилия, инициалы"
+                                       value={formData.briefingConductedByIssuer || ''}
+                                       onChange={e => updateField('briefingConductedByIssuer', e.target.value)}
+                                       disabled={isReadonly}
+                                    />
+                                    <div className="text-[10px] text-gray-400 text-center">(қолы / подпись)</div>
+                                 </div>
+
+                                 <div className="border border-gray-200 rounded-lg p-4">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.admittingPerson')}</label>
+                                    <input
+                                       className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-3 py-1.5 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors mb-2"
+                                       placeholder="тегі, аты-жөні / фамилия, инициалы"
+                                       value={formData.briefingConductedByAdmitter || ''}
+                                       onChange={e => updateField('briefingConductedByAdmitter', e.target.value)}
+                                       disabled={isReadonly}
+                                    />
+                                    <div className="text-[10px] text-gray-400 text-center">(қолы / подпись)</div>
+                                 </div>
+
+                                 <div className="border border-gray-200 rounded-lg p-4">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.respManagerProducer')}</label>
+                                    <p className="text-[10px] text-gray-400 mb-2">{t('electrical.labels.respManagerProducer')}</p>
+                                    <input
+                                       className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-3 py-1.5 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors mb-2"
+                                       placeholder="тегі, аты-жөні / фамилия, инициалы"
+                                       value={formData.briefingConductedByManager || ''}
+                                       onChange={e => updateField('briefingConductedByManager', e.target.value)}
+                                       disabled={isReadonly}
+                                    />
+                                    <div className="text-[10px] text-gray-400 text-center">(қолы / подпись)</div>
+                                 </div>
+                              </div>
+                           </div>
+
+                           {/* Right Column - Инструктаж получил */}
+                           <div className="space-y-4">
+                              <div className="bg-green-50 rounded-lg p-3 text-center">
+                                 <p className="text-xs font-semibold text-green-800">{t('electrical.labels.receivedBrief')}</p>
+                                 <p className="text-[10px] text-green-600">{t('electrical.labels.receivedBrief')}</p>
+                              </div>
+
+                              <div className="space-y-4">
+                                 <div className="border border-gray-200 rounded-lg p-4">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.respManagerProducer')}</label>
+                                    <p className="text-[10px] text-gray-400 mb-2">{t('electrical.labels.respManagerProducer')}</p>
+                                    <input
+                                       className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-3 py-1.5 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors mb-2"
+                                       placeholder="тегі, аты-жөні / фамилия, инициалы"
+                                       value={formData.briefingReceivedByManager || ''}
+                                       onChange={e => updateField('briefingReceivedByManager', e.target.value)}
+                                       disabled={isReadonly}
+                                    />
+                                    <div className="text-[10px] text-gray-400 text-center">(қолы / подпись)</div>
+                                 </div>
+
+                                 <div className="border border-gray-200 rounded-lg p-4">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.producerObserver')}</label>
+                                    <input
+                                       className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-3 py-1.5 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors mb-2"
+                                       placeholder="тегі, аты-жөні / фамилия, инициалы"
+                                       value={formData.briefingReceivedByProducer || ''}
+                                       onChange={e => updateField('briefingReceivedByProducer', e.target.value)}
+                                       disabled={isReadonly}
+                                    />
+                                    <div className="text-[10px] text-gray-400 text-center">(қолы / подпись)</div>
+                                 </div>
+
+                                 <div className="border border-gray-200 rounded-lg p-4">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.brigadeList')}</label>
+                                    <textarea
+                                       className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-3 py-1.5 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors min-h-[60px] resize-none"
+                                       placeholder="Список членов бригады..."
+                                       value={formData.briefingReceivedByMembers || ''}
+                                       onChange={e => updateField('briefingReceivedByMembers', e.target.value)}
+                                       disabled={isReadonly}
+                                    />
+                                 </div>
+                              </div>
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+
+                  {/* Work Completion - Жұмыс толық аяқталды */}
+                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                     <h3 className="font-bold text-gray-900 mb-1 text-sm tracking-wider border-b-2 border-slate-900 pb-2 flex items-center gap-2">
+                        <CheckCircle2 size={24} className="text-green-600" />{t('electrical.sec.completion')}</h3>
+                     <p className="text-sm text-gray-500 mb-6">{t('electrical.sec.completion')}</p>
+
+                     <div className="space-y-6">
+                        {/* Notification */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                           <div className="md:col-span-1">
+                              <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.th.notifiedTo')}</label>
+                              <input
+                                 className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-3 py-1.5 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                 placeholder="тегі, аты-жөні / фамилия, инициалы"
+                                 value={formData.completionNotifiedTo || ''}
+                                 onChange={e => updateField('completionNotifiedTo', e.target.value)}
+                                 disabled={isReadonly}
+                              />
+                           </div>
+                           <div>
+                              <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.dateLower')}</label>
+                              <input
+                                 type="date"
+                                 className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-3 py-1.5 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                 value={formData.completionDate || ''}
+                                 onChange={e => updateField('completionDate', e.target.value)}
+                                 disabled={isReadonly}
+                              />
+                           </div>
+                           <div>
+                              <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.time')}</label>
+                              <input
+                                 type="time"
+                                 className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-3 py-1.5 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                 value={formData.completionTime || ''}
+                                 onChange={e => updateField('completionTime', e.target.value)}
+                                 disabled={isReadonly}
+                              />
+                           </div>
+                        </div>
+
+                        {/* Signatures */}
+                        <div className="space-y-4 pt-4 border-t border-gray-100">
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                 <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.producerObserver')}</label>
+                                 <input
+                                    className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-3 py-1.5 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                    placeholder="(қолы / подпись) (тегі, аты-жөні / фамилия, инициалы)"
+                                    value={formData.completionProducerSignature || ''}
+                                    onChange={e => updateField('completionProducerSignature', e.target.value)}
+                                    disabled={isReadonly}
+                                 />
+                              </div>
+                              <div>
+                                 <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.respManager')}</label>
+                                 <input
+                                    className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-3 py-1.5 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                    placeholder="(қолы / подпись) (тегі, аты-жөні / фамилия, инициалы)"
+                                    value={formData.completionManagerSignature || ''}
+                                    onChange={e => updateField('completionManagerSignature', e.target.value)}
+                                    disabled={isReadonly}
+                                 />
+                              </div>
+                           </div>
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                 <label className="block text-sm font-semibold text-gray-700 mb-2">{t('electrical.labels.admittingPerson')}</label>
+                                 <input
+                                    className="w-full bg-[#f7f7f7] border border-gray-300 rounded px-3 py-1.5 text-base text-gray-900 focus:ring-1 focus:ring-blue-500 placeholder-gray-400 transition-colors"
+                                    placeholder="(қолы / подпись) (тегі, аты-жөні / фамилия, инициалы)"
+                                    value={formData.completionAdmitterSignature || ''}
+                                    onChange={e => updateField('completionAdmitterSignature', e.target.value)}
+                                    disabled={isReadonly}
+                                 />
+                              </div>
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+               </div>
+            )}
+
+            {activeTab === 'lifecycle' && renderLifecycleTab()}
+
+            {activeTab === 'risks' && (
+               <RiskAssessmentWidget
+                  riskTable={formData.riskTable || []}
+                  onAddRiskRow={() => updateField('riskTable', [...(formData.riskTable || []), { id: Date.now().toString(), step: '', hazards: '', measures: '', isControlled: '' }])}
+                  onRemoveRiskRow={(id) => updateField('riskTable', (formData.riskTable || []).filter(r => r.id !== id))}
+                  onUpdateRiskRow={(id, field, value) => {
+                     const updated = (formData.riskTable || []).map(r => r.id === id ? { ...r, [field]: value } : r);
+                     updateField('riskTable', updated);
+                  }}
+                  // General info
+                  workPlace={formData.assignment || 'Не указано'}
+                  organization={formData.organization || 'АО "Каражанбасмунай"'}
+                  content={formData.assignment || 'Не заполнено'}
+                  // Participants
+                  riskIdentifiedBy={riskIdentifiedBy}
+                  onRiskIdentifiedByChange={setRiskIdentifiedBy}
+                  riskGroup={riskGroup}
+                  onAddRiskGroupMember={addRiskGroupMember}
+                  onRemoveRiskGroupMember={removeRiskGroupMember}
+                  onUpdateRiskGroupMember={updateRiskGroupMember}
+                  isReadonly={isReadonly}
+                  variant="electrical"
+               />
+            )}
+
+            {activeTab === 'loto' && (
+               <div className="space-y-6 ">
+                  {/* LOTO Card */}
+                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                     <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-gray-900 uppercase text-sm tracking-wider flex items-center gap-2">
+                           <Lock size={24} className={formData.lotoEnabled ? 'text-red-600' : 'text-gray-400'} />
+                           Процедуры блокировки и маркировки (LOTO)
+                        </h3>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                           <div className="relative">
+                              <input type="checkbox" className="sr-only peer" checked={formData.lotoEnabled} onChange={e => updateField('lotoEnabled', e.target.checked)} disabled={isReadonly} />
+                              <div className="w-11 h-6 bg-gray-200 rounded-full peer-checked:bg-blue-600 transition-all after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5"></div>
+                           </div>
+                           <span className="text-sm text-gray-500">{formData.lotoEnabled ? t('electrical.misc.on') : t('electrical.misc.off')}</span>
+                        </label>
+                     </div>
+                     <div>
+                        {formData.lotoEnabled ? (
+                           <IsolationMatrixForm data={formData.isolationMatrix!} onChange={val => updateField('isolationMatrix', val)} />
+                        ) : (
+                           <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+                              <Lock size={48} className="mx-auto text-gray-300 mb-4" />
+                              <p className="text-gray-700 font-semibold mb-2">{t('electrical.misc.lotoOff')}</p>
+                              <p className="text-gray-400 text-sm max-w-md mx-auto">
+                                 {t('electrical.misc.lotoOffHint')}
+                              </p>
+                           </div>
+                        )}
+                     </div>
+                  </div>
+               </div>
+            )}
+         </div>
+
+         {/* Sticky Footer */}
+         {
+            !isReadonly && (
+               <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4 mt-8 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-10">
+                  <div className="w-full flex justify-between items-center">
+                     <div className="hidden sm:block text-base text-gray-400">
+                        {t('electrical.btn.step', { current: currentStep, total: totalSteps })}
+                     </div>
+                     <div className="flex gap-3 w-full sm:w-auto">
+                        {currentStep > 1 && (
+                           <button onClick={goToPrevStep} className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-base font-medium">
+                              {t('electrical.btn.back')}
+                           </button>
+                        )}
+                        {currentStep < totalSteps ? (
+                           <button onClick={goToNextStep} className="flex-1 sm:flex-none px-8 py-3 bg-slate-800 text-white rounded-lg hover:bg-slate-700 text-base font-medium ml-auto">
+                              {t('electrical.btn.next')}
+                           </button>
+                        ) : (
+                           <button
+                              onClick={goToNextStep}
+                              className="flex-1 sm:flex-none px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-base font-medium shadow-lg shadow-blue-200 flex items-center justify-center gap-2 transition-all transform active:scale-95"
+                           >
+                              <CheckCircle2 size={20}/>
+                              <span className="ml-2">{t('electrical.btn.create')}</span>
+                           </button>
+                        )}
+                     </div>
+                  </div>
+               </div>
+            )
+         }
+      </div>
+   );
+};

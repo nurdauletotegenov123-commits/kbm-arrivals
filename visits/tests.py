@@ -657,7 +657,9 @@ class ChiefToolsTests(ApprovalTests):
         self.assertContains(resp, "На Территории")
         self.assertContains(resp, "ТОО Тест")
         self.assertContains(self.client.get(reverse("people_search"), {"q": "900101300123"}), "На Территории")
-        self.assertEqual(self.client.get(reverse("home")).url, reverse("monitor"))
+        home = self.client.get(reverse("home"))  # главная портала — плитки разделов
+        self.assertContains(home, reverse("monitor"))
+        self.assertContains(home, reverse("permits_app"))
         for user in (self.applicant, self.security, self.dispatcher, self.camp):
             self.login(user)
             self.assertEqual(self.client.get(reverse("monitor")).status_code, 403)

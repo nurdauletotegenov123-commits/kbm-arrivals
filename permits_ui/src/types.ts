@@ -1,0 +1,335 @@
+
+export type Permission = 'CREATE_PERMIT' | 'VIEW_LOTO_LOGS' | 'APPROVE_PERMIT' | 'ADMIN_ACCESS' | 'VIEW_AUDIT_STATS';
+
+export enum PermitStatus {
+  DRAFT = 'DRAFT',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
+  APPROVED = 'APPROVED',
+  RENEWED = 'RENEWED',
+  ACTIVE = 'ACTIVE', // Work in progress
+  REJECTED = 'REJECTED',
+  CLOSED = 'CLOSED',
+}
+
+export enum PermitCategory {
+  DANGEROUS = 'DANGEROUS',
+  ELECTRICAL = 'ELECTRICAL',
+  ELECTRICAL_NEW = 'ELECTRICAL_NEW',
+}
+
+export enum UserRole {
+  ADMIN = 'ADMIN',
+  ISSUER = 'ISSUER', // Выдающий наряд
+  WORK_MANAGER = 'WORK_MANAGER', // Руководитель работ
+  ADMITTING_AUTHORITY = 'ADMITTING_AUTHORITY', // Допускающий
+  WORK_PRODUCER = 'WORK_PRODUCER', // Производитель работ
+  OBSERVER = 'OBSERVER', // Наблюдающий
+  WORKER = 'WORKER', // Член бригады
+  RESPONSIBLE_MANAGER = 'RESPONSIBLE_MANAGER', // Ответственный руководитель
+  SHIFT_SUPERVISOR = 'SHIFT_SUPERVISOR', // Начальник смены
+}
+
+export interface Location {
+  name: string;
+  latitude: number;
+  longitude: number;
+}
+
+// --- PART 1: ELECTRICAL CREATION DATA ---
+
+export interface ElectricalSafetyMeasure {
+  id: string;
+  installationName: string; // Наименование электроустановок
+  actionRequired: string; // Что должно быть отключено и где заземлено
+}
+
+export interface BrigadeMember {
+  name: string;
+  group: string; // Группа по электробезопасности
+}
+
+export interface ElectricalPermitExtension {
+  id: string;
+  extensionDate: string; // Күні / дата продления
+  extensionTime: string; // уақыты / время продления
+  extensionSignature: string; // Қолы / Подпись
+  extensionLastName: string; // Тегі / Фамилия
+}
+
+export interface BacksideDailyAdmission {
+  id: string;
+  workplaceName: string;
+  admissionDateTime: string;
+  admitterSignature: string;
+  producerSignature: string;
+  endDateTime: string;
+  producerEndSignature: string;
+}
+
+export interface BacksideBrigadeChange {
+  id: string;
+  introducedMember: string;
+  introducedMemberGroup?: string; // Группа введенного
+  removedMember: string;
+  removedMemberGroup?: string; // Группа выведенного
+  dateTime: string;
+  authorizedBy: string;
+}
+
+export interface ElectricalFormData {
+  organization: string;
+  department: string;
+  workManagerId: string; // Руководитель работ
+  workManagerPosition?: string; // Должность руководителя работ
+  workManagerGroup?: string; // Группа по электробезопасности руководителя работ
+  admittingAuthorityId: string; // Допускающий
+  admittingPosition?: string; // Должность допускающего
+  admittingAuthorityGroup?: string; // Группа по электробезопасности допускающего
+  workProducerId: string; // Производитель работ
+  workProducerPosition?: string; // Должность производителя работ
+  workProducerGroup?: string; // Группа по электробезопасности производителя работ
+  observerId?: string; // Наблюдающий (опционально)
+  observerPosition?: string; // Должность наблюдающего
+  observerGroup?: string; // Группа по электробезопасности наблюдающего
+  brigadeMembers: (string | BrigadeMember)[]; // Члены бригады — поддерживает старый строковый и новый объектный формат
+  workCategory: string; // Категория работ
+  assignment: string; // Поручается
+  startDate: string;
+  endDate: string;
+  emergencyReadinessTime: string; // Время аварийной готовности
+  safetyMeasures: ElectricalSafetyMeasure[];
+  separateInstructions?: string; // Отдельные указания
+  issuerId: string; // Наряд выдал
+  issuerIdDate?: string;
+  issuerTime?: string; // Время выдачи наряда
+  issuerLastName?: string; // Фамилия выдавшего
+  issuerDate: string;
+  extensions?: ElectricalPermitExtension[]; // Продления наряда
+  voltageRemainsAt?: string; // Кернеу бар жері / Под напряжением остались
+  // Модульные блоки
+  riskTable?: RiskTableRow[];
+  lotoEnabled?: boolean;
+  isolationMatrix?: IsolationMatrix;
+  // Admission Permission (разрешение на допуск)
+  admissionDateTime?: string;
+  admissionFromWhom?: string;
+  admissionSignature?: string;
+  underVoltageRemaining?: string;
+  admissionPermitSigner?: string;
+  responsibleWorkManagerSigner?: string;
+  // Оборотная сторона — ежедневный допуск
+  dailyAdmissions?: BacksideDailyAdmission[];
+  // Оборотная сторона — изменения в составе бригады
+  brigadeChanges?: BacksideBrigadeChange[];
+  // Целевой инструктаж — кто провёл
+  briefingConductedByIssuer?: string;
+  briefingConductedByAdmitter?: string;
+  briefingConductedByManager?: string;
+  // Целевой инструктаж — кто получил
+  briefingReceivedByManager?: string;
+  briefingReceivedByProducer?: string;
+  briefingReceivedByMembers?: string;
+  // Завершение работ
+  completionNotifiedTo?: string;
+  completionDate?: string;
+  completionTime?: string;
+  completionProducerSignature?: string;
+  completionManagerSignature?: string;
+  completionAdmitterSignature?: string;
+}
+
+// --- PART 2: ELECTRICAL LIFECYCLE DATA (The "Backside") ---
+
+export interface DailyAdmission {
+  id: string;
+  workPlace: string;
+  admissionDateTime: string;
+  admittingSignature: string; // Signature of the Admitting Authority
+  producerSignature: string; // Signature of the Work Producer
+  finishDateTime: string;
+  producerFinishSignature: string;
+}
+
+export interface BrigadeChange {
+  id: string;
+  introducedMember: string;
+  removedMember: string;
+  dateTime: string;
+  authorizedBy: string;
+}
+
+export interface TargetBriefingLog {
+  id: string;
+  personRole: string; // Role label (Issuer, Manager, Admitting, Producer, Members)
+  personName: string;
+  signature: string;
+  timestamp: string;
+}
+
+export interface ElectricalLifecycle {
+  dailyAdmissions: DailyAdmission[];
+  brigadeChanges: BrigadeChange[];
+  briefingLogs: TargetBriefingLog[];
+  completionDateTime?: string;
+  notifiedTo?: string; // Кому сообщено об окончании
+}
+
+// --- PART 3: DANGEROUS WORK (Order 344) & LOTO ---
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  role: string;
+  instructedAt: string;
+  instructedBy: string;
+}
+
+export interface LabTechnician {
+  name: string;
+  samplingLocation: string;
+  concentration: string;
+  signature: string;
+  signedAt: string;
+}
+
+export interface PermitExtension {
+  id: string;
+  dateTime: string;
+  producerHandOverName: string;
+  incomingTeamCount: number;
+  producerTakeOverName: string;
+  admittingName: string;
+}
+
+export interface RiskGroupMember {
+  id: string;
+  name: string;
+  position: string;
+}
+
+export interface RiskTableRow {
+  id: string;
+  step: string;
+  hazards: string;
+  measures: string;
+  isControlled: string;
+}
+
+export interface IsolationMatrix {
+  department: string;
+  site: string;
+  dateDeveloped: string;
+  dateRevised: string;
+  equipmentName: string;
+  techNumber: string;
+  energySourceCount: number;
+  energyType: string;
+  lockType: string;
+  installLocation: string;
+  checkResidualEnergy: boolean;
+  checkLockDevice: boolean;
+  checkPadlock: boolean;
+  checkTag: boolean;
+  photo?: any;
+}
+
+export interface RegulationFormData {
+  organization: string;
+  contractor?: string;
+  department: string;
+  workName: string;
+  workPlace: string;
+  equipment: string;
+  content: string;
+  m5_1_stop: string;
+  m5_2_disconnect: string;
+  m5_3_install: string;
+  m5_4_analysis: string;
+  m5_5_fence: string;
+  m5_6_height: string;
+  m5_7_warn: string;
+  m5_8_railway: string;
+  m5_9_routes: string;
+  m5_10_additional: string;
+  workCategory?: string; // Категория работ (для ELECTRICAL_NEW)
+  electricalDisconnects?: ElectricalSafetyMeasure[]; // Таблица отключений/заземлений (для ELECTRICAL_NEW)
+  riskIdentifiedBy: string;
+  riskGroup: RiskGroupMember[];
+  riskTable: RiskTableRow[];
+  riskApprovedBy: string;
+  lotoEnabled: boolean;
+  isolationMatrix: IsolationMatrix;
+  dateStart: string;
+  dateEnd: string;
+  extensions: PermitExtension[];
+  completionDateTime: string;
+  completionHandOverName: string;
+  completionTakeOverName: string;
+}
+
+export enum LotoStatus {
+  LOCKED = 'LOCKED',
+  UNLOCKED = 'UNLOCKED',
+  PARTIAL = 'PARTIAL',
+}
+
+export interface LOTOReport {
+  id: string;
+  permitId: string;
+  equipmentTag: string;
+  isolationPoint: string;
+  status: LotoStatus;
+  lockedBy: string;
+  lockedAt: string;
+  unlockedBy?: string;
+  unlockedAt?: string;
+  signatureStatus: 'VALID' | 'PENDING';
+  matrixData: IsolationMatrix;
+  lotoPhotoUrl?: string | null;
+}
+
+export interface WorkPermit {
+  id: string | number;
+  permitId: string;
+  location: Partial<Location> & { name: string };
+  createdAt: string;
+  status: PermitStatus | string;
+  category?: PermitCategory;
+  templateType: string;
+  scan_file?: string | null;
+  safety_document?: string | null;
+  loto_photo?: string | null;
+  producer_closed?: boolean;
+  initiator: {
+    id?: string | number;
+    name: string;
+    position?: string;
+    iin?: string;
+    bin?: string;
+  };
+  dangerousWorks?: Array<{ id: string; name: string }>;
+  teamMembers?: TeamMember[];
+  approvalSteps?: any[];
+  formData?: any;
+  data?: any;
+  validFrom?: string;
+  validTo?: string;
+  lifecycle?: Partial<ElectricalLifecycle>;
+}
+
+export type PageView = 'MODULE_SELECT' | 'DASHBOARD' | 'CREATE' | 'MY_TASKS' | 'LOTO_REPORTS' | 'LOGIN' | 'ARCHIVE' | 'DETAIL' | 'AUDIT_STATS';
+
+export const ELECTRICAL_WORK_CATEGORIES = [
+  "Со снятием напряжения",
+  "Без снятия напряжения на токоведущих частях и вблизи них",
+  "Без снятия напряжения вдали от токоведущих частей, находящихся под напряжением"
+];
+
+export const WORK_TYPES_LIST = [
+  "Земляные работы",
+  "Работы на высоте",
+  "Огневые работы",
+  "Газоопасные работы",
+  "Работы в замкнутом пространстве",
+  "Грузоподъемные работы"
+];

@@ -18,6 +18,9 @@ def nav(request):
         if user.has_role(*roles):
             items.append({"url": reverse(url_name), "label": label})
 
+    if user.has_role(R.APPLICANT, R.CHIEF):  # у них главная — плитки портала
+        add([R.APPLICANT, R.CHIEF], "home", _("Главная"))
+        add([R.APPLICANT, R.CHIEF], "permits_app", _("Наряды"))
     add([R.ADMIN], "dashboard", _("Обзор"))
     if user.role == R.CHIEF:  # у администратора свой «Обзор»
         add([R.CHIEF], "monitor", _("Обстановка"))
@@ -37,5 +40,5 @@ def nav(request):
     add([R.ADMIN], "audit_list", _("Журнал"))
     current = request.path
     for item in items:
-        item["active"] = current.startswith(item["url"])
+        item["active"] = current == "/" if item["url"] == "/" else current.startswith(item["url"])
     return {"nav_items": items, "telegram_enabled": settings.TELEGRAM_ENABLED, "role_label": user.get_role_display() if not user.is_superuser else _("Администратор")}

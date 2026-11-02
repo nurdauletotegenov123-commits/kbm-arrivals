@@ -1,0 +1,24 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Портал" %}{% endblock %}
+{% block content %}
+<section class="portal-hero">
+  <div>
+    <p class="portal-date">{{ today|date:"l, d E Y" }}</p>
+    <h1>{{ greeting }}, {{ name }}</h1>
+    <p class="muted">{% translate "Все сервисы АО «Каражанбасмунай» для работы на месторождении — в одном месте." %}</p>
+  </div>
+</section>
+<div class="portal-grid">
+  {% for t in tiles %}
+  <a class="portal-tile{% if t.accent %} accent{% endif %}" href="{{ t.url }}">
+    <span class="portal-icon">{% include "includes/icon.html" with name=t.icon size=26 %}</span>
+    <span class="portal-body">
+      <b>{{ t.title }}</b>
+      <span>{{ t.text }}</span>
+      {% if t.badge %}<em class="portal-badge">{{ t.badge }} {{ t.badge_text }}</em>{% endif %}
+    </span>
+    <span class="portal-go">{% include "includes/icon.html" with name="arrow" size=18 %}</span>
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}
