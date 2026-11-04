@@ -20,7 +20,7 @@ from .models import User
 
 logger = logging.getLogger(__name__)
 R = User.Role
-ROLE_PRIORITY = [R.ADMIN, R.CHIEF, R.SECURITY, R.DISPATCHER, R.CAMP]
+ROLE_PRIORITY = [R.ADMIN, R.CHIEF, R.SECURITY, R.DISPATCHER, R.CAMP, R.SUPPLY]
 ATTRS = ["sAMAccountName", "displayName", "mail", "title", "mobile", "telephoneNumber", "memberOf",
          "userAccountControl", "distinguishedName"]
 UAC_DISABLED = 0x2

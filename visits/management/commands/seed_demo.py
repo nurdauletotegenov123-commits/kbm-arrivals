@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from accounts.models import Checkpoint, User
 from audit.models import AuditLog
+from deliveries.models import Delivery
 from visits import rides, services
 from visits.models import EntryBan, Organization, Point, Request, RidePassenger, RideRequest, Trip, Visitor
 
@@ -26,6 +27,7 @@ USERS = [
     ("ohrana2", "Пост охраны КПП-2", R.SECURITY, "КПП-2 (промзона)"),
     ("kemp", "Администратор кэмпа и столовой", R.CAMP, None),
     ("dispetcher", "Диспетчер транспорта", R.DISPATCHER, None),
+    ("snab", "Отдел снабжения (ДМТС)", R.SUPPLY, None),
 ]
 NAMES = [
     "Абенов Нурлан Серикович", "Жумабаев Данияр Ерланович", "Касымов Арман Болатович", "Утегенов Бауыржан Каиржанович",
@@ -58,6 +60,7 @@ class Command(BaseCommand):
             Trip.objects.all().delete()
             EntryBan.objects.all().delete()
             RideRequest.objects.all().delete()
+            Delivery.objects.all().delete()
             AuditLog.objects.all().delete()
         elif Request.objects.exists():
             self.stdout.write(self.style.WARNING("Заявки уже есть — данные не созданы. Используйте --reset."))
@@ -242,6 +245,13 @@ class Command(BaseCommand):
                                        driver_name="Оразов Нурлан", driver_phone="+7 705 222 33 44"), [r.pk], disp)
         ride(a1, bmts, field, d(1), 8, [("Калиев Нуржан Амангельдиевич", fake_iin(rng))],
              cargo="Задвижки Ду100 — 4 шт.", approval=RideRequest.Approval.PENDING)
+
+        # 17. Поставки: план снабжения на сегодня (как их ежедневный Excel), одна машина уже въехала
+        from deliveries import sample, services as delivery_services
+        from deliveries.importer import apply_plan, parse_plan
+
+        apply_plan(parse_plan(sample.build(d(0)))[0], users["snab"])
+        delivery_services.enter(Delivery.objects.get(truck_plate="808XXA17").pk, sec)
 
         for r in Request.objects.all():
             AuditLog.objects.create(user=r.author, username=r.author.username, action=AuditLog.Action.REQUEST_CREATE,

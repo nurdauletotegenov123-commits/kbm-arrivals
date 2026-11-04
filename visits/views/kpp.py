@@ -10,6 +10,7 @@ from django.utils.translation import gettext as _
 from django.views.decorators.http import require_POST
 
 from accounts.decorators import role_required
+from deliveries.queries import for_kpp as deliveries_for_kpp
 
 from .. import bans, services
 from ..models import Request, Trip, Visitor
@@ -60,15 +61,17 @@ def kpp(request):
         "departed": departed.count(),
         "tomorrow": tomorrow.count(),
         "trips": _trips_today(today).filter(exited_at__isnull=True).count(),
+        "cargo": deliveries_for_kpp(today).exclude(status="departed").count(),
     }
 
-    sections, trips = [], []
+    sections, trips, cargo = [], [], []
     if q:
         tab = "search"
         plate = normalize_plate(q)
         if len(plate) >= 3:
             trips = list(_visible_trips(Trip.objects).filter(vehicle_plate__contains=plate, date__gte=today - timedelta(days=1),
                                              date__lte=today + timedelta(days=1)))
+            cargo = list(deliveries_for_kpp(today).filter(Q(truck_plate__contains=plate) | Q(trailer_plate__contains=plate)))
         window = Q(arrival_date__gte=today - timedelta(days=settings.NO_SHOW_DAYS), arrival_date__lte=today + timedelta(days=14))
         found = base.search(q).filter(window | Q(status=S.ARRIVED)).exclude(
             Q(status=S.DEPARTED) & ~Q(departed_at__date=today)
@@ -80,6 +83,8 @@ def kpp(request):
                          "empty": _("Никого.")})
     elif tab == "trips":
         trips = list(_trips_today(today))
+    elif tab == "cargo":
+        cargo = list(deliveries_for_kpp(today))
     elif tab == "tomorrow":
         sections.append({"title": _("Ожидаются завтра"), "items": list(tomorrow),
                          "empty": _("На завтра заявок нет.")})
@@ -96,9 +101,9 @@ def kpp(request):
         if t.is_ride:  # пассажиры заявок на машину — с ИИН, для сверки на КПП
             t.ride_people = [p for r in t.rides.all() for p in r.passengers.all()]
             bans.mark(t.ride_people)
-    bans.mark([v for s in sections for v in s["items"]], trips)
+    bans.mark([v for s in sections for v in s["items"]], trips + cargo)
     return render(request, "visits/kpp.html", {
-        "tab": tab, "q": q, "sections": sections, "trips": trips, "counts": counts, "today": today,
+        "tab": tab, "q": q, "sections": sections, "trips": trips, "cargo": cargo, "counts": counts, "today": today,
         "last_action": pop_action(request), "show_docs": request.user.can_see_documents,
     })
 

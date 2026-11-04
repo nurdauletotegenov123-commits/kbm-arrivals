@@ -1,0 +1,64 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Поставка" %} {{ d.truck_plate|default:d.plate_raw }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% translate "Поставка" %} <span class="plate plate-lg">{{ d.truck_plate|default:d.plate_raw|default:"—" }}</span> <span class="badge badge-{{ d.state_key }}">{{ d.state_label }}</span></h1>
+  <div class="btn-row">
+    {% if can_edit and d.status != "cancelled" %}<a class="btn btn-primary" href="{% url 'delivery_edit' d.pk %}">{% translate "Изменить" %}</a>{% endif %}
+    {% if can_edit and not d.is_marked and d.status != "cancelled" %}<form method="post" action="{% url 'delivery_cancel' d.pk %}" onsubmit="return confirm('{% translate "Отменить поставку? Охрана перестанет её ждать." %}')">{% csrf_token %}
+      <button class="btn btn-red" type="submit">{% translate "Отменить" %}</button></form>{% endif %}
+    <a class="btn" href="{% url 'delivery_board' %}?day={% if d.date_from <= today and d.date_to >= today %}{{ today|date:'Y-m-d' }}{% else %}{{ d.date_from|date:'Y-m-d' }}{% endif %}#d{{ d.pk }}">{% translate "К доске" %}</a>
+  </div>
+</div>
+
+{% if d.ban %}<div class="alert-box"><b>⛔ {% translate "Машина в списке запрета въезда" %}</b> — {{ d.ban.reason }}</div>{% endif %}
+
+<div class="grid grid-2">
+  <div class="card">
+    <h2 style="margin-top:0">{% translate "Машина" %}</h2>
+    <dl class="props">
+      <dt>{% translate "Даты въезда" %}</dt><dd><b>{{ d.dates_display }}</b></dd>
+      <dt>{% translate "Транспорт" %}</dt><dd>{{ d.vehicle|default:"—" }}</dd>
+      <dt>{% translate "Госномер" %}</dt><dd><span class="plate">{{ d.truck_plate|default:"—" }}</span>{% if d.trailer_plate %} + {% translate "прицеп" %} <span class="plate">{{ d.trailer_plate }}</span>{% endif %}
+        {% if d.plate_raw and d.plate_raw != d.truck_plate %}<div class="small muted">{% translate "В плане" %}: {{ d.plate_raw }}</div>{% endif %}</dd>
+      <dt>{% translate "Водитель" %}</dt><dd>{{ d.driver_name|default:"—" }}{% if d.driver_doc %} <span class="muted">· {{ d.driver_doc }}</span>{% endif %}</dd>
+      <dt>{% translate "Контакты" %}</dt><dd>{{ d.contact_name }}{% if d.contact_name and d.contact_phone %}, {% endif %}{% if d.contact_phone %}<a href="tel:{{ d.contact_phone }}">{{ d.contact_phone }}</a>{% endif %}{% if not d.contact_name and not d.contact_phone %}—{% endif %}</dd>
+      {% if d.departure_point %}<dt>{% translate "Откуда" %}</dt><dd>{{ d.departure_point }}</dd>{% endif %}
+      {% if d.work_type %}<dt>{% translate "Вид работы" %}</dt><dd>{{ d.work_type }}</dd>{% endif %}
+      {% if d.note %}<dt>{% translate "Примечание" %}</dt><dd>{{ d.note }}</dd>{% endif %}
+      <dt>{% translate "Источник" %}</dt><dd>{{ d.get_source_display }}{% if d.created_by %} · {{ d.created_by }}{% endif %}, {{ d.created_at|date:"d.m.Y H:i" }}</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">{% translate "КПП" %}</h2>
+    <ol class="dv-steps">
+      <li class="{% if d.status != 'cancelled' %}done{% endif %}"><b>{% translate "В плане" %}</b><span>{{ d.dates_display }}</span></li>
+      <li class="{% if d.entered_at or d.marked_arrived_in_plan %}done{% elif d.state_key == 'noshow' %}bad{% endif %}"><b>{% translate "Въехала" %}</b>
+        <span>{% if d.entered_at %}{{ d.entered_at|date:"d.m.Y H:i" }}{% if d.entered_checkpoint %}, {{ d.entered_checkpoint }}{% endif %}{% if d.is_off_schedule %} · <span class="ban-text">{% translate "вне графика" %}</span>{% endif %}
+        {% elif d.marked_arrived_in_plan %}{% translate "отмечено в плане снабжения" %}{% elif d.state_key == 'noshow' %}{% translate "не прибыла в срок" %}{% else %}—{% endif %}</span></li>
+      <li class="{% if d.exited_at %}done{% endif %}"><b>{% translate "Выехала" %}</b><span>{% if d.exited_at %}{{ d.exited_at|date:"d.m.Y H:i" }}{% if d.exited_checkpoint %}, {{ d.exited_checkpoint }}{% endif %}{% else %}—{% endif %}</span></li>
+    </ol>
+    {% if can_mark and d.status != "cancelled" %}<p class="small"><a href="{% url 'kpp' %}?tab=cargo#d{{ d.pk }}">{% translate "Отметить на экране КПП →" %}</a></p>{% endif %}
+  </div>
+</div>
+
+<h2 class="section-title">{% translate "Груз" %} <span class="badge">{{ d.items.all|length }}</span></h2>
+<div class="table-wrap card" style="padding:0">
+<table class="dv-table">
+  <thead><tr><th>{% translate "АБП" %}</th><th>{% translate "Наименование" %}</th><th>{% translate "Объём" %}</th><th>{% translate "Поставщик" %}</th><th>{% translate "Договор" %}</th><th title="{% translate 'Отечественный товаропроизводитель' %}">ОТП</th><th>{% translate "Финальная" %}</th><th>СТ-KZ</th></tr></thead>
+  <tbody>{% for it in d.items.all %}<tr>
+    <td>{% if it.abp %}<span class="abp t{{ it.abp_tone }}">{{ it.abp }}</span>{% endif %}</td>
+    <td><b>{{ it.name }}</b></td><td class="nowrap">{{ it.quantity }}</td><td>{{ it.supplier }}</td><td>{{ it.contract }}</td>
+    <td>{% if it.is_otp %}✓{% elif it.is_otp is False %}<span class="muted">нет</span>{% endif %}</td>
+    <td>{% if it.is_final %}✓{% elif it.is_final is False %}<span class="muted">нет</span>{% endif %}</td>
+    <td>{% if it.local_content_ok %}✓{% elif it.local_content_ok is False %}<span class="ban-text">нет</span>{% endif %}</td>
+  </tr>{% endfor %}</tbody>
+</table>
+</div>
+
+{% if history %}
+<details class="card mt"><summary><b>{% translate "История" %}</b> <span class="muted small">({{ history|length }})</span></summary>
+  <ul class="dv-history">{% for h in history %}<li><span class="muted">{{ h.created_at|date:"d.m H:i" }}</span> {{ h.username }} — {{ h.get_action_display }}{% for k, v in h.changes.items %} · {{ k }}: {{ v }}{% endfor %}</li>{% endfor %}</ul>
+</details>
+{% endif %}
+{% endblock %}

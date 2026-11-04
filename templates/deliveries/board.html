@@ -1,0 +1,62 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Поставки" %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% translate "Поставки на месторождение" %}</h1>
+  <div class="btn-row">
+    {% if can_edit %}
+    <a class="btn" href="{% url 'delivery_import' %}">↑ {% translate "Загрузить план (Excel)" %}</a>
+    <a class="btn btn-primary" href="{% url 'delivery_create' %}?day={{ day|date:'Y-m-d' }}">+ {% translate "Машина вручную" %}</a>
+    {% endif %}
+    {% if user.role != "security" %}<a class="btn" href="{% url 'delivery_export' %}?from={{ day|date:'Y-m-d' }}&to={{ day|date:'Y-m-d' }}">↓ {% translate "Отчёт Excel" %}</a>{% endif %}
+  </div>
+</div>
+
+<nav class="dv-days" aria-label="{% translate 'День' %}">
+  {% for x in days %}
+  <a href="?day={{ x.date|date:'Y-m-d' }}{% if abp %}&abp={{ abp|urlencode }}{% endif %}" class="{% if not q and x.date == day %}active{% endif %}{% if x.date == today %} is-today{% endif %}">
+    <small>{% if x.label %}{{ x.label }}{% else %}{{ x.date|date:"D" }}{% endif %}</small>
+    <b>{{ x.date|date:"d" }}</b>
+    <small>{{ x.date|date:"M" }}</small>
+    <span class="dv-day-count{% if not x.count %} zero{% endif %}">{{ x.count }}</span>
+  </a>
+  {% endfor %}
+  <form class="dv-pick" method="get"><input type="date" name="day" value="{{ day|date:'Y-m-d' }}" onchange="this.form.submit()" aria-label="{% translate 'Другая дата' %}"></form>
+</nav>
+
+{% if not q %}
+<div class="stats">
+  <a class="stat" href="?day={{ day|date:'Y-m-d' }}{% if abp %}&abp={{ abp|urlencode }}{% endif %}"><b>{{ counts.all }}</b><span>{% translate "машин по плану" %} · {{ items_total }} {% translate "поз." %}</span></a>
+  <a class="stat" href="?day={{ day|date:'Y-m-d' }}&state=expected{% if abp %}&abp={{ abp|urlencode }}{% endif %}"><b>{{ counts.expected|default:0 }}</b><span>{% translate "ожидаются" %}</span></a>
+  <a class="stat" href="?day={{ day|date:'Y-m-d' }}&state=arrived{% if abp %}&abp={{ abp|urlencode }}{% endif %}"><b style="color:var(--green)">{{ counts.arrived_all }}</b><span>{% translate "прибыли" %}{% if counts.offschedule %} · {{ counts.offschedule }} {% translate "вне графика" %}{% endif %}</span></a>
+  <a class="stat" href="?day={{ day|date:'Y-m-d' }}&state=departed{% if abp %}&abp={{ abp|urlencode }}{% endif %}"><b>{{ counts.departed|default:0 }}</b><span>{% translate "разгрузились и выехали" %}</span></a>
+  {% if counts.noshow %}<a class="stat warn" href="?day={{ day|date:'Y-m-d' }}&state=noshow"><b>{{ counts.noshow }}</b><span>{% translate "не прибыли в срок" %}</span></a>{% endif %}
+</div>
+{% endif %}
+
+<form class="dv-filter" method="get">
+  <input type="hidden" name="day" value="{{ day|date:'Y-m-d' }}">
+  <input type="search" name="q" value="{{ q }}" placeholder="{% translate 'Госномер, договор, поставщик, водитель, груз…' %}" autocomplete="off" enterkeyhint="search">
+  {% if abp_list %}<select name="abp" onchange="this.form.submit()" aria-label="{% translate 'АБП' %}">
+    <option value="">{% translate "Все АБП" %}</option>
+    {% for a in abp_list %}<option value="{{ a }}"{% if a|lower == abp|lower %} selected{% endif %}>{{ a }}</option>{% endfor %}
+  </select>{% endif %}
+  <button class="btn btn-primary" type="submit">{% translate "Найти" %}</button>
+  {% if q or abp or state %}<a class="btn-link" href="?day={{ day|date:'Y-m-d' }}">{% translate "Сбросить" %}</a>{% endif %}
+</form>
+
+{% include "includes/undo_bar.html" %}
+
+<h2 class="section-title">
+  {% if q %}{% translate "Найдено" %}: «{{ q }}»{% elif day == today %}{% translate "Сегодня" %}, {{ day|date:"d E" }}{% else %}{{ day|date:"d E, l" }}{% endif %}
+  <span class="badge">{{ deliveries|length }}</span>
+</h2>
+{% if deliveries %}
+<div class="people">{% for d in deliveries %}{% include "deliveries/_card.html" with link=1 %}{% endfor %}</div>
+{% else %}
+<div class="empty">
+  {% if q %}{% translate "Ничего не найдено за последние 60 дней." %}
+  {% else %}{% translate "На этот день поставок нет." %}{% if can_edit %}<br><a href="{% url 'delivery_import' %}">{% translate "Загрузите план из Excel" %}</a> {% translate "или" %} <a href="{% url 'delivery_create' %}?day={{ day|date:'Y-m-d' }}">{% translate "добавьте машину вручную" %}</a>.{% endif %}{% endif %}
+</div>
+{% endif %}
+{% endblock %}

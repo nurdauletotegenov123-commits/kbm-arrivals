@@ -23,7 +23,7 @@ from .models import User
 
 R = User.Role
 HOME_BY_ROLE = {R.APPLICANT: "request_list", R.CHIEF: "monitor", R.SECURITY: "kpp", R.CAMP: "camp",
-                R.DISPATCHER: "dispatch"}
+                R.DISPATCHER: "dispatch", R.SUPPLY: "delivery_board"}
 
 
 def _too_many(request, action, limit, minutes):

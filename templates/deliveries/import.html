@@ -1,0 +1,41 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Загрузить план поставок" %}{% endblock %}
+{% block content %}
+<div class="rb">
+  <a class="rb-back" href="{% url 'delivery_board' %}">← {% translate "Доска поставок" %}</a>
+  <h1 class="rb-title">{% translate "Загрузить план поставок" %}</h1>
+  <p class="rb-sub muted">{% translate "Тот же Excel, что вы рассылаете каждый день («Ежедневная информация по поставке оборудования/материала»). Сайт сам найдёт колонки, машины и даты." %}</p>
+
+  <form method="post" enctype="multipart/form-data" class="rb-card">
+    {% csrf_token %}
+    <label class="dv-drop{% if form.file.errors %} has-error{% endif %}" id="dv-drop">
+      <input type="file" name="file" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+      <span class="dv-drop-icon" aria-hidden="true">⇪</span>
+      <b id="dv-drop-name">{% translate "Выберите файл .xlsx или перетащите сюда" %}</b>
+      <small class="muted">{% translate "до 10 МБ" %}</small>
+    </label>
+    {{ form.file.errors }}
+    <div class="rb-mt"><button class="btn btn-primary btn-big" type="submit">{% translate "Проверить файл" %}</button></div>
+    <p class="small muted" style="margin-bottom:0">{% translate "Сначала покажем, что нашли, — в систему ничего не попадёт, пока вы не нажмёте «Загрузить». Повторная загрузка того же плана не создаёт дублей: машины обновятся." %}</p>
+  </form>
+
+  <section class="rb-card">
+    <h2 class="rb-h">{% translate "Что сайт понимает в файле" %}</h2>
+    <ul class="small dv-help">
+      <li>{% translate "Колонки по названиям в шапке: АБП, Подрядная организация, Наименование, Объём, № договора, Вид транспорта, Номер авто, Дата въезда, Ф.И.О водителя, Телефон, ОТП, Финальная поставка, СТ-KZ, Примечание. Порядок колонок не важен." %}</li>
+      <li>{% translate "Строки «Планируемая поставка на 01.11.2026» — день для строк ниже, если у машины не указана своя дата." %}</li>
+      <li>{% translate "Даты в любом виде: 31.10-04.11.2026, 01.11.2026г.-05.11.2026г., 02-03.11.2026, 10/31/2026." %}</li>
+      <li>{% translate "Госномер и прицеп из одной ячейки: «808XXA17 / прицеп 97AMH17», «KZ 585AFU 12»." %}</li>
+      <li>{% translate "Одна машина на несколько строк груза (объединённые ячейки) — одна поставка с несколькими позициями." %}</li>
+    </ul>
+  </section>
+</div>
+<script>
+(function () {
+  var drop = document.getElementById("dv-drop"), input = drop.querySelector("input"), name = document.getElementById("dv-drop-name");
+  input.addEventListener("change", function () { if (input.files[0]) { name.textContent = input.files[0].name; drop.classList.add("has-file"); } });
+  ["dragenter", "dragover"].forEach(function (e) { drop.addEventListener(e, function () { drop.classList.add("over"); }); });
+  ["dragleave", "drop"].forEach(function (e) { drop.addEventListener(e, function () { drop.classList.remove("over"); }); });
+})();
+</script>
+{% endblock %}

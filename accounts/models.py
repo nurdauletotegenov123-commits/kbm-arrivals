@@ -32,6 +32,7 @@ class User(AbstractUser):
         SECURITY = "security", _("Охрана (КПП)")
         CAMP = "camp", _("Кэмп и столовая")  # один человек ведёт кэмп и докладывает на кухню
         DISPATCHER = "dispatcher", _("Диспетчер транспорта")
+        SUPPLY = "supply", _("Снабжение (ДМТС)")  # план поставок оборудования и материалов
         ADMIN = "admin", _("Администратор")
 
     full_name = models.CharField(_("ФИО"), max_length=200, blank=True)

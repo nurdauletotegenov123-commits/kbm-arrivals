@@ -1,0 +1,18 @@
+{% load i18n %}<ul class="dv-items">
+  {% for it in d.items.all %}
+  <li>
+    <div class="dv-item-head">
+      {% if it.abp %}<span class="abp t{{ it.abp_tone }}">{{ it.abp }}</span>{% endif %}
+      <span class="dv-name">{{ it.name }}</span>
+      {% if it.quantity %}<span class="dv-qty">{{ it.quantity }}</span>{% endif %}
+    </div>
+    <div class="dv-item-sub">
+      {% if it.supplier %}<span>{{ it.supplier }}</span>{% endif %}
+      {% if it.contract %}<span class="muted">{% translate "дог." %} {{ it.contract }}</span>{% endif %}
+      {% if it.is_otp %}<span class="flag flag-otp" title="{% translate 'Отечественный товаропроизводитель' %}">ОТП</span>{% endif %}
+      {% if it.is_final %}<span class="flag flag-final">{% translate "Финальная" %}</span>{% endif %}
+      {% if it.local_content_ok is False %}<span class="flag flag-warn" title="{% translate 'Местное содержание и СТ-KZ не внесены' %}">{% translate "Нет СТ-KZ" %}</span>{% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ul>

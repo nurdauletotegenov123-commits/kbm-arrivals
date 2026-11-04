@@ -1,0 +1,41 @@
+{% load i18n %}<article class="person trip dv {{ d.state_class }}" id="d{{ d.pk }}">
+  <div class="person-head">
+    <div>
+      <div class="person-name">
+        <span class="plate plate-lg">{{ d.truck_plate|default:d.plate_raw|default:"—" }}</span>
+        {% if d.trailer_plate %}<span class="dv-trailer">+ <span class="plate">{{ d.trailer_plate }}</span></span>{% endif %}
+      </div>
+      <div class="person-sub">{{ d.vehicle }}{% if d.driver_name %}{% if d.vehicle %} · {% endif %}{% translate "Водитель" %}: <b>{{ d.driver_name }}</b>{% endif %}</div>
+    </div>
+    <div class="right">
+      <span class="badge badge-trip-cargo">{% translate "Груз" %}</span>
+      {% if d.exited_at %}<span class="badge badge-departed">{% translate "Выехала" %} {{ d.exited_at|date:"H:i" }}</span>
+      {% elif d.entered_at %}<span class="badge badge-arrived">{% translate "На территории с" %} {{ d.entered_at|date:"H:i" }}</span>
+      {% else %}<span class="badge badge-expected">{% translate "Ещё не въехала" %}</span>{% endif %}
+    </div>
+  </div>
+  {% if d.ban %}<div class="alert-line">⛔ {% translate "Машина в списке запрета въезда" %}: {{ d.ban.reason }}</div>{% endif %}
+  {% if d.date_from != d.date_to %}<div class="small muted">{% translate "Въезд по плану" %}: <b>{{ d.dates_display }}</b></div>
+  {% elif d.date_from != today %}<div class="warn-line">{% blocktranslate with x=d.dates_display %}По плану на {{ x }}{% endblocktranslate %}</div>{% endif %}
+  {% include "deliveries/_items.html" %}
+  {% if d.contact_name or d.contact_phone %}<div class="person-meta small"><span><span class="k">{% translate "Отв." %}:</span> {{ d.contact_name }}{% if d.contact_phone %} <a href="tel:{{ d.contact_phone }}">{{ d.contact_phone }}</a>{% endif %}</span></div>{% endif %}
+  <div class="person-actions">
+    {% if not d.entered_at %}
+      <form method="post" action="{% url 'delivery_kpp_action' d.pk 'enter' %}"{% if d.ban %} onsubmit="return confirm('{% translate "Машина в списке запрета въезда. Всё равно отметить въезд?" %}')"{% endif %}>{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn btn-green btn-big" type="submit">✓ {% translate "Машина въехала" %}</button>
+      </form>
+    {% elif not d.exited_at %}
+      <form method="post" action="{% url 'delivery_kpp_action' d.pk 'exit' %}">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn btn-blue btn-big" type="submit">→ {% translate "Машина выехала" %}</button>
+      </form>
+    {% endif %}
+    {% if d.is_marked %}
+      <form method="post" action="{% url 'delivery_kpp_action' d.pk 'undo' %}" onsubmit="return confirm('{% translate "Отменить последнюю отметку машины?" %}')">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn-link" type="submit">{% translate "Отменить отметку" %}</button>
+      </form>
+    {% endif %}
+  </div>
+</article>

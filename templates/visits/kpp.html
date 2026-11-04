@@ -16,6 +16,7 @@
   <a href="?tab=expected" class="{% if tab == 'expected' %}active{% endif %}">{% translate "Ожидаются" %}<span class="count">{{ counts.expected }}</span>{% if counts.no_shows %}<span class="count warn" title="{% translate 'Не прибыли' %}">{{ counts.no_shows }}</span>{% endif %}</a>
   <a href="?tab=on_site" class="{% if tab == 'on_site' %}active{% endif %}">{% translate "На территории" %}<span class="count">{{ counts.on_site }}</span>{% if counts.leaving %}<span class="count warn" title="{% translate 'Убывают сегодня' %}">{{ counts.leaving }}</span>{% endif %}</a>
   <a href="?tab=trips" class="{% if tab == 'trips' %}active{% endif %}">{% translate "Машины" %}<span class="count">{{ counts.trips }}</span></a>
+  <a href="?tab=cargo" class="{% if tab == 'cargo' %}active{% endif %}">{% translate "Грузы" %}<span class="count">{{ counts.cargo }}</span></a>
   <a href="?tab=tomorrow" class="{% if tab == 'tomorrow' %}active{% endif %}">{% translate "Завтра" %}<span class="count">{{ counts.tomorrow }}</span></a>
   <a href="?tab=departed" class="{% if tab == 'departed' %}active{% endif %}">{% translate "Убыли сегодня" %}<span class="count">{{ counts.departed }}</span></a>
   {% if q %}<a href="?q={{ q|urlencode }}" class="active">{% translate "Поиск" %}: {{ q }}</a>{% endif %}
@@ -27,6 +28,11 @@
   <h2 class="section-title">{% translate "Машины" %} <span class="badge">{{ trips|length }}</span></h2>
   <div class="people">{% for t in trips %}{% include "visits/_trip_kpp.html" %}{% endfor %}</div>
 {% elif tab == "trips" %}<div class="empty">{% translate "На сегодня машин нет." %}</div>{% endif %}
+
+{% if cargo %}
+  <h2 class="section-title">{% translate "Грузы по плану снабжения" %} <span class="badge">{{ cargo|length }}</span></h2>
+  <div class="people">{% for d in cargo %}{% include "deliveries/_kpp_card.html" %}{% endfor %}</div>
+{% elif tab == "cargo" %}<div class="empty">{% translate "На сегодня грузов по плану нет." %}</div>{% endif %}
 
 {% for s in sections %}
   <h2 class="section-title{% if s.warn %} warn{% endif %}">{{ s.title }} <span class="badge">{{ s.items|length }}</span></h2>

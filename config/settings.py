@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     "accounts",
     "audit",
     "visits",
+    "deliveries",
 ]
 
 MIDDLEWARE = [
@@ -155,6 +156,7 @@ AD_GROUPS = {  # группа AD (CN) → роль на сайте
     "security": env("AD_GROUP_SECURITY", ""),
     "dispatcher": env("AD_GROUP_DISPATCHER", ""),
     "camp": env("AD_GROUP_CAMP", ""),
+    "supply": env("AD_GROUP_SUPPLY", ""),
 }
 AD_ENABLED = bool(AD_HOST and AD_DOMAIN and AD_BASE_DN)
 if AD_ENABLED:

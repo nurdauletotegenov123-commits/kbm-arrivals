@@ -30,6 +30,7 @@ def nav(request):
         add([R.APPLICANT], "ride_list", _("Машина"))
     add([R.DISPATCHER], "dispatch", _("Транспорт"))
     add([R.SECURITY], "kpp", _("КПП"))
+    add([R.SUPPLY, R.CHIEF], "delivery_board", _("Поставки"))
     add([R.CAMP], "camp", _("Кэмп"))
     add([R.CAMP], "canteen", _("Столовая"))
     add([R.SECURITY, R.CAMP, R.CHIEF], "reports", _("Отчёты"))

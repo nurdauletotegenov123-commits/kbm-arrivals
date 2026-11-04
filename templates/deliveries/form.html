@@ -1,0 +1,124 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% if d %}{% translate "Изменить поставку" %}{% else %}{% translate "Новая поставка" %}{% endif %}{% endblock %}
+{% block content %}
+<div class="rb">
+  <a class="rb-back" href="{% if d %}{% url 'delivery_detail' d.pk %}{% else %}{% url 'delivery_board' %}{% endif %}">← {% if d %}{% translate "К поставке" %}{% else %}{% translate "Доска поставок" %}{% endif %}</a>
+  <h1 class="rb-title">{% if d %}{% translate "Изменить поставку" %}{% else %}{% translate "Машина с грузом" %}{% endif %}</h1>
+  <p class="rb-sub muted">{% translate "Машина и даты въезда — для охраны КПП. Груз — что везёт: можно несколько позиций и договоров." %}</p>
+
+  <form method="post" id="dv-form" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+    {% if form.errors or formset.total_error_count %}<div class="form-errors">{% translate "Проверьте выделенные поля." %}{{ formset.non_form_errors }}</div>{% endif %}
+
+    <section class="rb-card{% if form.date_from.errors or form.date_to.errors %} has-error{% endif %}">
+      <h2 class="rb-h">{% translate "Когда въезжает" %}</h2>
+      <div class="rb-chips" id="dv-quick">
+        <button type="button" class="rb-chip-btn" data-add="0">{% translate "Сегодня" %}</button>
+        <button type="button" class="rb-chip-btn" data-add="1">{% translate "Завтра" %}</button>
+        <button type="button" class="rb-chip-btn" data-add="2">{% translate "Послезавтра" %}</button>
+      </div>
+      <div class="grid-2 rb-mt">
+        {% include "includes/field.html" with field=form.date_from %}
+        {% include "includes/field.html" with field=form.date_to %}
+      </div>
+      <p class="small muted" style="margin:0">{% translate "Если день один — «по» можно не заполнять." %}</p>
+    </section>
+
+    <section class="rb-card">
+      <h2 class="rb-h">{% translate "Машина и водитель" %}</h2>
+      <div class="grid-2">
+        {% include "includes/field.html" with field=form.truck_plate %}
+        {% include "includes/field.html" with field=form.trailer_plate %}
+        {% include "includes/field.html" with field=form.vehicle %}
+        {% include "includes/field.html" with field=form.driver_name %}
+        {% include "includes/field.html" with field=form.contact_name %}
+        {% include "includes/field.html" with field=form.contact_phone %}
+      </div>
+      <details{% if form.departure_point.value or form.work_type.value or form.note.value or form.driver_doc.value %} open{% endif %}>
+        <summary class="btn-link">{% translate "Ещё: откуда, вид работы, примечание" %}</summary>
+        <div class="grid-2 rb-mt">
+          {% include "includes/field.html" with field=form.departure_point %}
+          {% include "includes/field.html" with field=form.work_type %}
+          {% include "includes/field.html" with field=form.driver_doc %}
+          {% include "includes/field.html" with field=form.note %}
+        </div>
+      </details>
+    </section>
+
+    <section class="rb-card">
+      <div class="rb-h-row"><h2 class="rb-h">{% translate "Груз" %}</h2><span class="muted small" id="dv-count"></span></div>
+      {{ formset.management_form }}
+      <div id="dv-items">
+        {% for f in formset %}{% include "deliveries/_item_form.html" %}{% endfor %}
+      </div>
+      <template id="dv-item-tpl">{% with f=formset.empty_form %}{% include "deliveries/_item_form.html" %}{% endwith %}</template>
+      <button type="button" class="rb-add" id="dv-add">+ {% translate "Ещё позиция" %}</button>
+      <datalist id="abp-list">{% for a in abp_list %}<option value="{{ a }}">{% endfor %}</datalist>
+    </section>
+
+    <div class="rb-bar">
+      <div class="rb-summary" id="dv-summary"></div>
+      {% if not d %}<button class="btn btn-big" type="submit" name="again" value="1">{% translate "Сохранить и ещё машину" %}</button>{% endif %}
+      <button class="btn btn-primary btn-big rb-submit" type="submit">{% translate "Сохранить" %}</button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById("dv-form");
+  var box = document.getElementById("dv-items");
+  var tpl = document.getElementById("dv-item-tpl").innerHTML;
+  var total = form.querySelector("[name=items-TOTAL_FORMS]");
+  var d1 = form.querySelector("[name=date_from]"), d2 = form.querySelector("[name=date_to]");
+  var plate = form.querySelector("[name=truck_plate]");
+
+  function iso(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+  document.querySelectorAll("#dv-quick [data-add]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var d = new Date(); d.setDate(d.getDate() + Number(b.dataset.add));
+      d1.value = iso(d); d2.value = iso(d); refresh();
+    });
+  });
+  d1.addEventListener("change", function () { if (!d2.value || d2.value < d1.value) d2.value = d1.value; refresh(); });
+
+  function rows() { return Array.prototype.filter.call(box.querySelectorAll(".dv-item-form"), function (r) { return !r.classList.contains("removed"); }); }
+  function renumber() { rows().forEach(function (r, i) { r.querySelector(".rb-num").textContent = i + 1; }); }
+  function refresh() {
+    var n = rows().length;
+    document.getElementById("dv-count").textContent = n + " " + (n === 1 ? "позиция" : n < 5 ? "позиции" : "позиций");
+    var p = (plate.value || "").toUpperCase().replace(/\s/g, "");
+    var dates = d1.value ? d1.value.split("-").reverse().slice(0, 2).join(".") + (d2.value && d2.value !== d1.value ? "–" + d2.value.split("-").reverse().slice(0, 2).join(".") : "") : "—";
+    document.getElementById("dv-summary").innerHTML = "<b>" + (p || "Госномер?") + "</b><span>" + dates + " · " + n + " поз.</span>";
+    renumber();
+  }
+  document.getElementById("dv-add").addEventListener("click", function () {
+    var i = Number(total.value);
+    box.insertAdjacentHTML("beforeend", tpl.replace(/__prefix__/g, i));
+    total.value = i + 1;
+    var last = box.lastElementChild;
+    var prev = rows()[rows().length - 2];
+    if (prev) {  // поставщик, договор и АБП у позиций одной машины обычно одинаковые
+      ["abp", "supplier", "contract"].forEach(function (f) {
+        var src = prev.querySelector("[name$=-" + f + "]"), dst = last.querySelector("[name$=-" + f + "]");
+        if (src && dst) dst.value = src.value;
+      });
+    }
+    last.querySelector("[name$=-name]").focus();
+    refresh();
+  });
+  box.addEventListener("click", function (e) {
+    var b = e.target.closest(".rb-del");
+    if (!b) return;
+    var row = b.closest(".dv-item-form");
+    if (rows().length === 1) return;
+    var del = row.querySelector("[name$=-DELETE]");
+    if (del) { del.checked = true; row.classList.add("removed"); } else { row.remove(); }
+    refresh();
+  });
+  plate.addEventListener("input", refresh);
+  refresh();
+})();
+</script>
+{% endblock %}

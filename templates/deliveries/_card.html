@@ -1,0 +1,22 @@
+{% load i18n %}<article class="person trip dv {{ d.state_class }}" id="d{{ d.pk }}">
+  <div class="person-head">
+    <div>
+      <div class="person-name">
+        <span class="plate plate-lg">{{ d.truck_plate|default:d.plate_raw|default:"—" }}</span>
+        {% if d.trailer_plate %}<span class="dv-trailer" title="{% translate 'Прицеп' %}">+ <span class="plate">{{ d.trailer_plate }}</span></span>{% endif %}
+      </div>
+      <div class="person-sub">{{ d.vehicle|default:"" }}{% if d.vehicle and d.driver_name %} · {% endif %}{% if d.driver_name %}{% translate "Водитель" %}: <b>{{ d.driver_name }}</b>{% endif %}</div>
+    </div>
+    <div class="right">
+      <span class="badge badge-{{ d.state_key|default:'expected' }}">{{ d.state_label }}{% if d.entered_at %} {{ d.entered_at|date:"H:i" }}{% endif %}</span>
+      <span class="dv-dates">{{ d.dates_display }}</span>
+    </div>
+  </div>
+  {% if d.ban %}<div class="alert-line">⛔ {% translate "Машина в списке запрета въезда" %}: {{ d.ban.reason }}</div>{% endif %}
+  {% include "deliveries/_items.html" %}
+  {% if d.contact_name or d.contact_phone or d.note %}<div class="person-meta small">
+    {% if d.contact_name or d.contact_phone %}<span><span class="k">{% translate "Отв." %}:</span> {{ d.contact_name }}{% if d.contact_phone %} <a href="tel:{{ d.contact_phone }}">{{ d.contact_phone }}</a>{% endif %}</span>{% endif %}
+    {% if d.note %}<span class="muted">💬 {{ d.note }}</span>{% endif %}
+  </div>{% endif %}
+  {% if link %}<a class="dv-link" href="{% url 'delivery_detail' d.pk %}" aria-label="{% translate 'Открыть поставку' %}"></a>{% endif %}
+</article>

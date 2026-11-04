@@ -1,0 +1,17 @@
+{% load i18n %}<div class="dv-item-form{% if f.DELETE.value %} removed{% endif %}{% if f.errors %} has-error{% endif %}">
+  {{ f.id }}<span class="hidden">{{ f.DELETE }}</span>
+  <div class="dv-item-top">
+    <span class="rb-num">1</span>
+    <div class="field dv-f-name">{{ f.name.label_tag }}{{ f.name }}{{ f.name.errors }}</div>
+    <button type="button" class="rb-del" title="{% translate 'Убрать позицию' %}" aria-label="{% translate 'Убрать позицию' %}">✕</button>
+  </div>
+  <div class="dv-item-grid">
+    <div class="field">{{ f.quantity.label_tag }}{{ f.quantity }}{{ f.quantity.errors }}</div>
+    <div class="field">{{ f.abp.label_tag }}{{ f.abp }}{{ f.abp.errors }}</div>
+    <div class="field dv-f-wide">{{ f.supplier.label_tag }}{{ f.supplier }}{{ f.supplier.errors }}</div>
+    <div class="field dv-f-wide">{{ f.contract.label_tag }}{{ f.contract }}{{ f.contract.errors }}</div>
+    <div class="field">{{ f.is_otp.label_tag }}{{ f.is_otp }}</div>
+    <div class="field">{{ f.is_final.label_tag }}{{ f.is_final }}</div>
+    <div class="field">{{ f.local_content_ok.label_tag }}{{ f.local_content_ok }}</div>
+  </div>
+</div>

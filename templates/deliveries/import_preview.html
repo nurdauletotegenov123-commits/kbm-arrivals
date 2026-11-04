@@ -1,0 +1,40 @@
+{% extends "base.html" %}{% load i18n %}
+{% block title %}{% translate "Проверка плана" %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{% translate "Проверка плана" %}</h1>
+  <span class="muted">{{ file }}</span>
+</div>
+
+<div class="stats">
+  <div class="stat"><b>{{ rows|length }}</b><span>{% translate "машин в файле" %}</span></div>
+  <div class="stat"><b style="color:var(--green)">{{ new }}</b><span>{% translate "новых" %}</span></div>
+  <div class="stat"><b>{{ upd }}</b><span>{% translate "уже есть — обновятся" %}</span></div>
+  <div class="stat"><b>{{ items }}</b><span>{% translate "позиций груза" %}</span></div>
+  {% if warnings %}<div class="stat warn"><b>{{ warnings|length }}</b><span>{% translate "замечаний" %}</span></div>{% endif %}
+</div>
+
+{% if warnings %}<div class="alert-box"><b>{% translate "Проверьте эти строки в файле" %}</b><ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul></div>{% endif %}
+
+<form method="post" class="toolbar dv-confirm">{% csrf_token %}
+  <button class="btn btn-primary btn-big" type="submit" name="action" value="apply">✓ {% translate "Загрузить" %} ({{ rows|length }})</button>
+  <button class="btn" type="submit" name="action" value="cancel">{% translate "Другой файл" %}</button>
+</form>
+
+<div class="card table-wrap" style="padding:0">
+<table class="dv-table">
+  <thead><tr><th></th><th>{% translate "Даты" %}</th><th>{% translate "Машина" %}</th><th>{% translate "Водитель" %}</th><th>{% translate "Груз" %}</th></tr></thead>
+  <tbody>
+  {% for r in rows %}<tr>
+    <td>{% if r.exists %}<span class="badge badge-departed">{% translate "есть" %}</span>{% else %}<span class="badge badge-approved">{% translate "новая" %}</span>{% endif %}</td>
+    <td class="nowrap"><b>{{ r.date_from|date:"d.m" }}{% if r.date_to != r.date_from %}–{{ r.date_to|date:"d.m" }}{% endif %}</b></td>
+    <td>{% if r.truck_plate %}<span class="plate">{{ r.truck_plate }}</span>{% else %}<span class="ban-text">{{ r.plate_raw|default:"нет номера" }}</span>{% endif %}
+      {% if r.trailer_plate %}<div class="small">+ {% translate "прицеп" %} {{ r.trailer_plate }}</div>{% endif %}
+      {% if r.vehicle %}<div class="small muted">{{ r.vehicle }}</div>{% endif %}</td>
+    <td>{{ r.driver_name }}{% if r.note %}<div class="small muted">💬 {{ r.note }}</div>{% endif %}</td>
+    <td>{% for it in r.items %}<div class="dv-prev-item">{% if it.abp %}<b>{{ it.abp }}</b> · {% endif %}{{ it.name|truncatechars:90 }}{% if it.quantity %} — <span class="nowrap">{{ it.quantity }}</span>{% endif %}{% if it.contract %} <span class="muted small">({{ it.contract|truncatechars:40 }})</span>{% endif %}</div>{% endfor %}</td>
+  </tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
