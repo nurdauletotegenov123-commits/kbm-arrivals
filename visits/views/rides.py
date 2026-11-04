@@ -1,5 +1,7 @@
 """Заявки на машину: заявитель просит машину, начальник штаба согласует поездки на месторождение,
 диспетчер назначает машину."""
+from datetime import timedelta
+
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
@@ -52,7 +54,14 @@ def ride_create(request):
         else:
             messages.success(request, _("Поездка №%(n)s отправлена диспетчеру.") % {"n": ride.number})
         return redirect("ride_detail", pk=ride.pk)
-    return render(request, "visits/ride_form.html", {"form": form})
+    today = timezone.localdate()
+    days = [(_("Сегодня"), today), (_("Завтра"), today + timedelta(days=1)), (_("Послезавтра"), today + timedelta(days=2))]
+    return render(request, "visits/ride_form.html", {
+        "form": form,
+        "points": list(form.fields["from_point"].queryset),
+        "quick_days": [{"label": label, "iso": d.isoformat(), "day": d} for label, d in days],
+        "quick_times": ["07:00", "08:00", "09:00", "11:00", "14:00", "17:00", "18:30"],
+    })
 
 
 def _can_see(user, ride):

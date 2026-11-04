@@ -1,51 +1,236 @@
 {% extends "base.html" %}{% load i18n %}
 {% block title %}{% translate "Заказать машину" %}{% endblock %}
 {% block content %}
-<div class="page-head"><h1>{% translate "Заказать машину" %}</h1>
-  <a class="btn" href="{% url 'ride_list' %}">{% translate "Назад" %}</a></div>
-<form method="post" class="card" style="max-width:820px" novalidate>
-  {% csrf_token %}
-  {% include "includes/form_errors.html" %}
-  <div class="grid-2">
-    <div>{% include "includes/field.html" with field=form.from_point %}
-      <div data-other="from_point">{% include "includes/field.html" with field=form.from_address %}</div></div>
-    <div>{% include "includes/field.html" with field=form.to_point %}
-      <div data-other="to_point">{% include "includes/field.html" with field=form.to_address %}</div></div>
-    {% include "includes/field.html" with field=form.date %}
-    {% include "includes/field.html" with field=form.time %}
-  </div>
-  <div class="warn-line hidden" id="guarded-note">{% translate "Поездка на месторождение: заявку сначала согласует начальник штаба безопасности, укажите ИИН каждого, кто едет." %}</div>
-  {% include "includes/field.html" with field=form.passengers %}
-  {% include "includes/field.html" with field=form.cargo %}
-  {% include "includes/check.html" with field=form.with_return %}
-  <div class="grid-2" id="return-fields">
-    {% include "includes/field.html" with field=form.return_date %}
-    {% include "includes/field.html" with field=form.return_time %}
-  </div>
-  <div class="grid-2">
-    {% include "includes/field.html" with field=form.contact_phone %}
-    {% include "includes/field.html" with field=form.comment %}
-  </div>
-  <div class="btn-row"><button class="btn btn-primary btn-big" type="submit">{% translate "Отправить заявку" %}</button></div>
-</form>
+<div class="rb">
+  <a class="rb-back" href="{% url 'ride_list' %}">← {% translate "Мои поездки" %}</a>
+  <h1 class="rb-title">{% translate "Заказать машину" %}</h1>
+  <p class="rb-sub muted">{% translate "Офис, склад БМТС или месторождение — диспетчер назначит машину и пришлёт водителя и госномер." %}</p>
+
+  <form method="post" id="ride-form" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+    {% if form.errors and not form.non_field_errors %}<div class="form-errors">{% translate "Проверьте выделенные поля." %}</div>{% endif %}
+
+    {# ---------- Маршрут ---------- #}
+    <section class="rb-card rb-route{% if form.from_address.errors or form.to_address.errors or form.to_point.errors %} has-error{% endif %}">
+      {% with sel=form.from_point.value|stringformat:"s" %}
+      <div class="rb-leg" data-leg="from">
+        <span class="rb-pin from" aria-hidden="true"></span>
+        <div class="rb-leg-body">
+          <div class="rb-label">{% translate "Откуда" %}</div>
+          <div class="rb-chips" role="radiogroup" aria-label="{% translate 'Откуда' %}">
+            {% for p in points %}<label class="rb-chip"><input type="radio" name="from_point" value="{{ p.pk }}"{% if sel == p.pk|stringformat:"s" %} checked{% endif %}><span>{{ p.name }}</span></label>{% endfor %}
+            <label class="rb-chip rb-chip-other"><input type="radio" name="from_point" value=""{% if form.is_bound and sel in "None," and form.from_address.value %} checked{% endif %}><span>{% translate "Другой адрес" %}</span></label>
+          </div>
+          <input class="rb-address" type="text" name="from_address" maxlength="300" value="{{ form.from_address.value|default:'' }}" placeholder="{% translate 'Улица, дом или ориентир' %}" autocomplete="street-address">
+          {{ form.from_address.errors }}
+        </div>
+      </div>
+      {% endwith %}
+
+      <button type="button" class="rb-swap" id="rb-swap" title="{% translate 'Поменять местами' %}" aria-label="{% translate 'Поменять «Откуда» и «Куда» местами' %}">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/></svg>
+      </button>
+
+      {% with sel=form.to_point.value|stringformat:"s" %}
+      <div class="rb-leg" data-leg="to">
+        <span class="rb-pin to" aria-hidden="true"></span>
+        <div class="rb-leg-body">
+          <div class="rb-label">{% translate "Куда" %}</div>
+          <div class="rb-chips" role="radiogroup" aria-label="{% translate 'Куда' %}">
+            {% for p in points %}<label class="rb-chip"><input type="radio" name="to_point" value="{{ p.pk }}" data-guarded="{{ p.is_guarded|yesno:'1,0' }}"{% if sel == p.pk|stringformat:"s" %} checked{% endif %}><span>{{ p.name }}{% if p.is_guarded %} <small>🛡</small>{% endif %}</span></label>{% endfor %}
+            <label class="rb-chip rb-chip-other"><input type="radio" name="to_point" value="" data-guarded="0"{% if form.is_bound and sel in "None," and form.to_address.value %} checked{% endif %}><span>{% translate "Другой адрес" %}</span></label>
+          </div>
+          <input class="rb-address" type="text" name="to_address" maxlength="300" value="{{ form.to_address.value|default:'' }}" placeholder="{% translate 'Улица, дом или ориентир' %}" autocomplete="street-address">
+          {{ form.to_point.errors }}{{ form.to_address.errors }}
+        </div>
+      </div>
+      {% endwith %}
+    </section>
+    <div class="rb-guarded hidden" id="rb-guarded">
+      🛡 {% translate "Поездка на месторождение: сначала согласует начальник штаба безопасности. Для каждого пассажира нужен ИИН — его проверят на КПП." %}
+    </div>
+
+    {# ---------- Когда ---------- #}
+    <section class="rb-card{% if form.date.errors or form.time.errors %} has-error{% endif %}">
+      <h2 class="rb-h">{% translate "Когда" %}</h2>
+      <div class="rb-chips rb-quick" data-target="id_date">
+        {% for d in quick_days %}<button type="button" class="rb-chip-btn" data-value="{{ d.iso }}"><b>{{ d.label }}</b><small>{{ d.day|date:"d E, D" }}</small></button>{% endfor %}
+        <label class="rb-chip-btn rb-pick"><small>{% translate "Другая дата" %}</small>{{ form.date }}</label>
+      </div>
+      {{ form.date.errors }}
+      <div class="rb-label rb-mt">{% translate "Время подачи" %}</div>
+      <div class="rb-chips rb-quick" data-target="id_time">
+        {% for t in quick_times %}<button type="button" class="rb-chip-btn rb-time" data-value="{{ t }}"><b>{{ t }}</b></button>{% endfor %}
+        <label class="rb-chip-btn rb-pick rb-time"><small>{% translate "Своё" %}</small>{{ form.time }}</label>
+      </div>
+      {{ form.time.errors }}
+    </section>
+
+    {# ---------- Кто едет ---------- #}
+    <section class="rb-card{% if form.passengers.errors %} has-error{% endif %}">
+      <div class="rb-h-row"><h2 class="rb-h">{% translate "Кто едет" %}</h2><span class="rb-count" id="rb-count"></span></div>
+      <div id="rb-people" class="rb-people" aria-live="polite"></div>
+      <button type="button" class="rb-add" id="rb-add">+ {% translate "Добавить пассажира" %}</button>
+      <p class="rb-hint muted">{% translate "Если везёте только груз — удалите всех пассажиров и опишите груз ниже." %}</p>
+      <textarea name="passengers" id="id_passengers" rows="3" class="rb-raw" placeholder="{% translate 'По одному в строке: ФИО, ИИН' %}">{{ form.passengers.value|default:'' }}</textarea>
+      {{ form.passengers.errors }}
+    </section>
+
+    {# ---------- Груз и обратно ---------- #}
+    <section class="rb-card rb-toggles{% if form.return_date.errors or form.return_time.errors %} has-error{% endif %}">
+      <label class="rb-switch">
+        <input type="checkbox" id="rb-has-cargo"{% if form.cargo.value %} checked{% endif %}>
+        <span class="rb-switch-ui" aria-hidden="true"></span>
+        <span><b>{% translate "Есть груз" %}</b><small>{% translate "Материалы, оборудование, документы" %}</small></span>
+      </label>
+      <div class="rb-reveal" id="rb-cargo">{{ form.cargo }}</div>
+
+      <label class="rb-switch">
+        {{ form.with_return }}
+        <span class="rb-switch-ui" aria-hidden="true"></span>
+        <span><b>{% translate "Нужна машина обратно" %}</b><small>{% translate "Создадим вторую поездку в обратную сторону" %}</small></span>
+      </label>
+      <div class="rb-reveal rb-return" id="rb-return">
+        <div class="field"><label for="id_return_date">{% translate "Дата обратно" %}</label>{{ form.return_date }}{{ form.return_date.errors }}</div>
+        <div class="field"><label for="id_return_time">{% translate "Время обратно" %}</label>{{ form.return_time }}{{ form.return_time.errors }}</div>
+      </div>
+    </section>
+
+    {# ---------- Контакт ---------- #}
+    <section class="rb-card rb-contact{% if form.contact_phone.errors %} has-error{% endif %}">
+      <div class="field"><label for="id_contact_phone">{% translate "Телефон для водителя" %}</label>{{ form.contact_phone }}{{ form.contact_phone.errors }}</div>
+      <div class="field"><label for="id_comment">{% translate "Комментарий" %} <span class="muted">({% translate "необязательно" %})</span></label>{{ form.comment }}</div>
+    </section>
+
+    {# ---------- Итог и кнопка ---------- #}
+    <div class="rb-bar">
+      <div class="rb-summary">
+        <b id="rb-sum-route">{% translate "Выберите маршрут" %}</b>
+        <span id="rb-sum-meta" class="muted"></span>
+      </div>
+      <button class="btn btn-primary btn-big rb-submit" type="submit">{% translate "Заказать машину" %}</button>
+    </div>
+  </form>
+</div>
 {% endblock %}
+
 {% block scripts %}
 <script>
-  (function () {
-    const guarded = new Set([{% for p in form.fields.to_point.queryset %}{% if p.is_guarded %}"{{ p.pk }}",{% endif %}{% endfor %}]);
-    const sel = (n) => document.getElementById("id_" + n);
-    // «Другой адрес…» — показать поле адреса
-    document.querySelectorAll("[data-other]").forEach((box) => {
-      const s = sel(box.dataset.other);
-      const sync = () => box.classList.toggle("hidden", !!s.value);
-      s.addEventListener("change", sync); sync();
-    });
-    const to = sel("to_point"), note = document.getElementById("guarded-note");
-    const syncNote = () => note.classList.toggle("hidden", !guarded.has(to.value));
-    to.addEventListener("change", syncNote); syncNote();
-    const back = sel("with_return"), fields = document.getElementById("return-fields");
-    const syncBack = () => fields.classList.toggle("hidden", !back.checked);
-    back.addEventListener("change", syncBack); syncBack();
-  })();
+(function () {
+  const form = document.getElementById("ride-form");
+  const $ = (sel, root = form) => root.querySelector(sel);
+  const $$ = (sel, root = form) => [...root.querySelectorAll(sel)];
+  const t = {
+    passengers: (n) => n === 1 ? "1 пассажир" : (n >= 2 && n <= 4 ? n + " пассажира" : n + " пассажиров"),
+    name: "{{ _('ФИО')|escapejs }}", iin: "{{ _('ИИН')|escapejs }}", remove: "{{ _('Убрать')|escapejs }}",
+    pick: "{{ _('Выберите маршрут')|escapejs }}", cargo: "{{ _('груз')|escapejs }}", back: "{{ _('обратно')|escapejs }}",
+    other: "{{ _('Другой адрес')|escapejs }}",
+  };
+
+  // ---- Маршрут: точки-«чипы», «Другой адрес» открывает поле адреса, кнопка «поменять местами» ----
+  const leg = (name) => $(`[data-leg="${name}"]`);
+  function syncLeg(name) {
+    const box = leg(name), checked = $(`input[name="${name}_point"]:checked`, box);
+    const other = checked && checked.value === "";
+    $(".rb-address", box).classList.toggle("hidden", !other);
+    if (other && document.activeElement !== $(".rb-address", box) && !$(".rb-address", box).value) $(".rb-address", box).focus();
+  }
+  function legLabel(name) {
+    const box = leg(name), checked = $(`input[name="${name}_point"]:checked`, box);
+    if (!checked) return "";
+    if (checked.value === "") return $(".rb-address", box).value.trim() || t.other;
+    return checked.parentElement.querySelector("span").textContent.replace("🛡", "").trim();
+  }
+  const guarded = () => $('input[name="to_point"]:checked')?.dataset.guarded === "1";
+  $$('input[name="from_point"], input[name="to_point"]').forEach(r => r.addEventListener("change", () => {
+    syncLeg("from"); syncLeg("to"); syncGuarded(); summary();
+  }));
+  $$(".rb-address").forEach(i => i.addEventListener("input", summary));
+  $("#rb-swap").addEventListener("click", () => {
+    const f = $('input[name="from_point"]:checked'), to = $('input[name="to_point"]:checked');
+    const fa = $('input[name="from_address"]'), ta = $('input[name="to_address"]');
+    $$('input[name="from_point"], input[name="to_point"]').forEach(r => (r.checked = false));
+    if (to) $(`input[name="from_point"][value="${to.value}"]`).checked = true;
+    if (f) $(`input[name="to_point"][value="${f.value}"]`).checked = true;
+    [fa.value, ta.value] = [ta.value, fa.value];
+    $("#rb-swap").classList.add("spin"); setTimeout(() => $("#rb-swap").classList.remove("spin"), 300);
+    syncLeg("from"); syncLeg("to"); syncGuarded(); summary();
+  });
+
+  // ---- Дата и время: быстрые кнопки заполняют поле, поле подсвечивает свою кнопку ----
+  $$(".rb-quick").forEach(group => {
+    const input = document.getElementById(group.dataset.target);
+    const mark = () => $$("button[data-value]", group).forEach(b => b.classList.toggle("on", b.dataset.value === input.value));
+    $$("button[data-value]", group).forEach(b => b.addEventListener("click", () => { input.value = b.dataset.value; mark(); summary(); }));
+    input.addEventListener("input", () => { mark(); summary(); });
+    mark();
+  });
+
+  // ---- Пассажиры: строки вместо текстового поля; на месторождение — ещё и ИИН ----
+  const area = $("#id_passengers"), list = $("#rb-people");
+  area.classList.add("hidden");  // с JavaScript — удобные строки; без него остаётся обычное поле
+  function row(name = "", doc = "") {
+    const r = document.createElement("div");
+    r.className = "rb-person";
+    r.innerHTML = `<span class="rb-num"></span>
+      <input type="text" class="rb-name" placeholder="${t.name}" autocomplete="name" maxlength="200">
+      <input type="text" class="rb-iin" placeholder="${t.iin}" inputmode="numeric" maxlength="12">
+      <button type="button" class="rb-del" aria-label="${t.remove}">×</button>`;
+    $(".rb-name", r).value = name; $(".rb-iin", r).value = doc;
+    r.addEventListener("input", serialize);
+    $(".rb-del", r).addEventListener("click", () => { r.remove(); serialize(); });
+    list.appendChild(r);
+    return r;
+  }
+  function serialize() {
+    const rows = $$(".rb-person", list);
+    rows.forEach((r, i) => ($(".rb-num", r).textContent = i + 1));
+    area.value = rows.map(r => {
+      const n = $(".rb-name", r).value.trim(), d = $(".rb-iin", r).value.replace(/\s/g, "");
+      return n ? (d ? `${n}, ${d}` : n) : "";
+    }).filter(Boolean).join("\n");
+    summary();
+  }
+  area.value.split("\n").map(l => l.trim()).filter(Boolean).forEach(l => {
+    const i = l.lastIndexOf(",");
+    i > 0 ? row(l.slice(0, i).trim(), l.slice(i + 1).trim()) : row(l);
+  });
+  if (!list.children.length) row();
+  $("#rb-add").addEventListener("click", () => { $(".rb-name", row()).focus(); serialize(); });
+
+  function syncGuarded() {
+    const g = guarded();
+    document.getElementById("rb-guarded").classList.toggle("hidden", !g);
+    list.classList.toggle("with-iin", g);
+  }
+
+  // ---- Груз и обратно — переключатели ----
+  const cargoBox = $("#rb-has-cargo"), cargo = $("#id_cargo"), back = $("#id_with_return");
+  const reveal = () => {
+    $("#rb-cargo").classList.toggle("open", cargoBox.checked);
+    if (!cargoBox.checked) cargo.value = "";
+    $("#rb-return").classList.toggle("open", back.checked);
+    summary();
+  };
+  cargoBox.addEventListener("change", () => { reveal(); if (cargoBox.checked) cargo.focus(); });
+  back.addEventListener("change", reveal);
+  cargo.addEventListener("input", summary);
+
+  // ---- Итог внизу ----
+  function summary() {
+    const from = legLabel("from"), to = legLabel("to");
+    document.getElementById("rb-sum-route").textContent = from && to ? `${from} → ${to}` : t.pick;
+    const d = $("#id_date").value, tm = $("#id_time").value;
+    const day = $$('.rb-quick[data-target="id_date"] button.on')[0]?.querySelector("b")?.textContent
+      || (d ? new Date(d + "T00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "short" }) : "");
+    const n = $$(".rb-name", list).filter(i => i.value.trim()).length;
+    const bits = [[day, tm].filter(Boolean).join(", "), n ? t.passengers(n) : "", cargoBox.checked ? t.cargo : "", back.checked ? t.back : ""];
+    document.getElementById("rb-sum-meta").textContent = bits.filter(Boolean).join(" · ");
+    document.getElementById("rb-count").textContent = n ? t.passengers(n) : "";
+  }
+
+  syncLeg("from"); syncLeg("to"); syncGuarded(); reveal(); serialize();
+})();
 </script>
 {% endblock %}
