@@ -46,7 +46,7 @@ def create_ride(data, user, request=None):
 
 
 def _locked(ride):
-    return RideRequest.objects.select_for_update().get(pk=ride.pk)
+    return RideRequest.objects.select_for_update(of=("self",)).get(pk=ride.pk)
 
 
 @transaction.atomic
@@ -103,10 +103,10 @@ def assign_rides(trip, ride_ids, user, request=None):
     """Посадить поездки в машину. `trip` без pk — новая машина (направление «Поездка»)."""
     is_new = trip.pk is None
     if not is_new:
-        trip = Trip.objects.select_for_update().get(pk=trip.pk, direction=Trip.Direction.RIDE)
+        trip = Trip.objects.select_for_update(of=("self",)).get(pk=trip.pk, direction=Trip.Direction.RIDE)
         if trip.exited_at:
             raise ActionError(_("Машина уже отмечена на выезде — добавить поездки нельзя."))
-    rides = list(RideRequest.objects.for_dispatcher().select_for_update()
+    rides = list(RideRequest.objects.for_dispatcher().select_for_update(of=("self",))
                  .filter(pk__in=ride_ids, status=S.NEW, date=trip.date).select_related("from_point", "to_point"))
     if not rides:
         raise ActionError(_("Выберите поездки на дату %(d)s.") % {"d": trip.date.strftime("%d.%m.%Y")})

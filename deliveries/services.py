@@ -14,7 +14,7 @@ S = Delivery.Status
 
 
 def _locked(pk):
-    return Delivery.objects.select_for_update().get(pk=pk)
+    return Delivery.objects.select_for_update(of=("self",)).get(pk=pk)
 
 
 @transaction.atomic

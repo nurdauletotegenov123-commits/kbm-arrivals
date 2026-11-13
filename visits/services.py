@@ -27,7 +27,7 @@ def _fmt(dt):
 
 def locked_visitor(pk):
     """Получить человека с блокировкой строки — защита от одновременных нажатий."""
-    return Visitor.objects.select_for_update().select_related("request", "organization").get(pk=pk)
+    return Visitor.objects.select_for_update(of=("self",)).select_related("request", "organization").get(pk=pk)
 
 
 @transaction.atomic
@@ -157,7 +157,7 @@ def camp_undo(pk, user, request=None):
 def cancel_request(req, user, request=None):
     """Отменить всех ещё не прибывших. Если никто не приезжал — заявка отменяется целиком."""
     cancelled = []
-    for v in req.visitors.select_for_update().filter(status=S.EXPECTED):
+    for v in req.visitors.select_for_update(of=("self",)).filter(status=S.EXPECTED):
         v.status = S.CANCELLED
         v.save(update_fields=["status"])
         cancelled.append(v.full_name)
@@ -171,7 +171,7 @@ def cancel_request(req, user, request=None):
 # --- согласование (начальник штаба безопасности) ---
 
 def _locked_request(req):
-    return Request.objects.select_for_update().get(pk=req.pk)
+    return Request.objects.select_for_update(of=("self",)).get(pk=req.pk)
 
 
 @transaction.atomic
@@ -182,7 +182,7 @@ def approve_request(req, user, strike_ids=(), request=None):
     if req.is_cancelled or not req.is_pending:
         raise ActionError(_("Заявка №%(n)s уже не ждёт согласования.") % {"n": req.number})
     struck = []
-    for v in req.visitors.select_for_update().filter(pk__in=strike_ids, status=S.EXPECTED):
+    for v in req.visitors.select_for_update(of=("self",)).filter(pk__in=strike_ids, status=S.EXPECTED):
         v.status = S.REJECTED
         v.save(update_fields=["status"])
         log_action(request, A.VISITOR_CANCEL, v, {"status": [S.EXPECTED, S.REJECTED]}, user=user)
@@ -223,7 +223,7 @@ def revoke_approval(req, user, reason, request=None):
     if req.is_cancelled or not req.is_approved:
         raise ActionError(_("Заявка №%(n)s не в статусе «Согласована».") % {"n": req.number})
     unseated = []
-    for v in req.visitors.select_for_update().filter(status=S.EXPECTED):
+    for v in req.visitors.select_for_update(of=("self",)).filter(status=S.EXPECTED):
         if v.arrival_trip_id or v.departure_trip_id:
             v.arrival_trip = v.departure_trip = None
             v.save(update_fields=["arrival_trip", "departure_trip"])
@@ -282,7 +282,7 @@ def _trip_field(direction):
 def _assignable(trip, visitor_ids):
     """Люди, которых можно посадить в эту машину: нужен транспорт, дата совпадает с рейсом,
     на привоз — ещё не прибыли, на вывоз — ещё не убыли."""
-    qs = Visitor.objects.approved().select_for_update().filter(pk__in=visitor_ids, needs_transport=True)
+    qs = Visitor.objects.approved().select_for_update(of=("self",)).filter(pk__in=visitor_ids, needs_transport=True)
     if trip.is_in:
         qs = qs.filter(arrival_date=trip.date, status=S.EXPECTED)
     else:
@@ -295,7 +295,7 @@ def assign_trip(trip, visitor_ids, user, request=None):
     """Посадить людей в машину. `trip` без pk — новая машина, создаётся здесь."""
     is_new = trip.pk is None
     if not is_new:
-        trip = Trip.objects.select_for_update().get(pk=trip.pk)
+        trip = Trip.objects.select_for_update(of=("self",)).get(pk=trip.pk)
         if trip.exited_at or (trip.is_in and trip.entered_at):
             raise ActionError(_("Машина уже отмечена на КПП — добавить людей нельзя."))
     people = _assignable(trip, visitor_ids)
@@ -345,7 +345,7 @@ def remove_passenger(trip, visitor_pk, user, request=None):
 
 @transaction.atomic
 def delete_trip(trip, user, request=None):
-    trip = Trip.objects.select_for_update().get(pk=trip.pk)
+    trip = Trip.objects.select_for_update(of=("self",)).get(pk=trip.pk)
     if trip.is_marked:
         raise ActionError(_("Машина уже отмечена на КПП — удалить рейс нельзя."))
     people = list(trip.passengers().select_related("request__author"))
@@ -410,7 +410,7 @@ def trip_enter(pk, user, request=None):
 
 @transaction.atomic
 def trip_exit(pk, user, request=None):
-    trip = Trip.objects.select_for_update().get(pk=pk)
+    trip = Trip.objects.select_for_update(of=("self",)).get(pk=pk)
     if trip.exited_at:
         raise ActionError(_("Машина %(plate)s уже выехала.") % {"plate": trip.vehicle_plate})
     if not trip.entered_at:
@@ -423,7 +423,7 @@ def trip_exit(pk, user, request=None):
 
 @transaction.atomic
 def trip_undo(pk, user, request=None):
-    trip = Trip.objects.select_for_update().get(pk=pk)
+    trip = Trip.objects.select_for_update(of=("self",)).get(pk=pk)
     if trip.exited_at:
         trip.exited_at = trip.exited_by = trip.exited_checkpoint = None
         what = "выезд"
