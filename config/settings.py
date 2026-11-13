@@ -194,6 +194,7 @@ SESSION_COOKIE_AGE = 60 * 60 * 12  # 12 часов — одна смена
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = HTTPS
 CSRF_COOKIE_SECURE = HTTPS
+CSRF_FAILURE_VIEW = "accounts.csrf.csrf_failure"  # устаревшая форма → назад с подсказкой, а не 403
 # За прокси: доверяем его заголовкам о протоколе и IP клиента (для журнала).
 # Без прокси эти заголовки может подделать кто угодно, поэтому они игнорируются.
 BEHIND_PROXY = HTTPS or env_bool("DJANGO_BEHIND_PROXY", False)

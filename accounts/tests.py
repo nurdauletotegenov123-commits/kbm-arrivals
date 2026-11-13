@@ -241,3 +241,15 @@ class AdminAddsUsersTests(TestCase):
         self.assertContains(self.post(username="+7 701 555 44 33", password1="Kbm-pass-2026",
                                       password2="Kbm-pass-2026"), "уже есть")
         self.assertContains(self.post(username="no_password"), "Задайте пароль")
+
+
+class CsrfFailureTests(TestCase):
+    def test_stale_login_form_redirects_back_with_hint(self):
+        from django.test import Client
+
+        c = Client(enforce_csrf_checks=True)
+        c.get(reverse("login"))
+        resp = c.post(reverse("login"), {"username": "x", "password": "y", "csrfmiddlewaretoken": "stale" * 8},
+                      HTTP_REFERER="http://testserver/login/")
+        self.assertRedirects(resp, "http://testserver/login/", fetch_redirect_response=False)
+        self.assertContains(c.get(reverse("login")), "Страница устарела")
