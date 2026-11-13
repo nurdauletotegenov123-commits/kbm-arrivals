@@ -1,0 +1,43 @@
+{% extends "base.html" %}{% load i18n assets %}
+{% block title %}{% translate "Сканер пропусков" %}{% endblock %}
+{% block content %}
+<div class="scan">
+  <div class="page-head">
+    <h1>{% translate "Сканер пропусков" %}</h1>
+    <a class="btn" href="{% url 'kpp' %}">{% translate "К списку КПП" %}</a>
+  </div>
+
+  <div class="scan-view" id="scan-view">
+    <video id="scan-video" playsinline muted></video>
+    <div class="scan-frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="scan-idle" id="scan-idle">
+      <span class="scan-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M7 12h10"/></svg>
+      </span>
+      <button type="button" class="btn btn-green btn-big" id="scan-start">{% translate "Включить камеру" %}</button>
+    </div>
+  </div>
+  <div class="scan-status" id="scan-status" role="status" aria-live="polite">{% translate "Наведите камеру на QR-код пропуска — карточка человека откроется сама." %}</div>
+
+  <div class="scan-alt">
+    <label class="btn btn-big" for="scan-photo">📷 {% translate "Сфотографировать код" %}</label>
+    <input type="file" id="scan-photo" accept="image/*" capture="environment" class="hidden">
+    <p class="small muted">{% translate "Если камера в окне не включается — сфотографируйте QR-код, сайт прочитает его со снимка." %}</p>
+  </div>
+  <canvas id="scan-canvas" class="hidden"></canvas>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  window.SCAN = {
+    found: "{% translate 'Пропуск найден, открываю…' %}",
+    notPass: "{% translate 'Это не пропуск КБМ. Наведите на QR-код пропуска.' %}",
+    noCode: "{% translate 'На снимке не найден QR-код. Снимите ближе и ровнее, без бликов.' %}",
+    noCamera: "{% translate 'Камера в окне сайта работает только по защищённому адресу (https). Пока используйте кнопку «Сфотографировать код».' %}",
+    denied: "{% translate 'Нет доступа к камере. Разрешите камеру для этого сайта в настройках браузера или сфотографируйте код.' %}",
+    aim: "{% translate 'Наведите камеру на QR-код пропуска — карточка человека откроется сама.' %}",
+  };
+</script>
+<script src="{% asset 'vendor/jsQR.js' %}"></script>
+<script src="{% asset 'js/scan.js' %}"></script>
+{% endblock %}

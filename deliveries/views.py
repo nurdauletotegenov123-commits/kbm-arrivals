@@ -180,9 +180,44 @@ def _preview_rows(deliveries):
         lookup = Q(date_from=d["date_from"], date_to=d["date_to"])
         lookup &= Q(truck_plate=normalize_plate(d["truck_plate"])) if d["truck_plate"] else Q(plate_raw=d["plate_raw"])
         exists = Delivery.objects.filter(lookup).exclude(status=S.CANCELLED).exists()
-        rows.append({**d, "exists": exists, "date_from": date.fromisoformat(d["date_from"]),
-                     "date_to": date.fromisoformat(d["date_to"])})
+        rows.append({**d, "exists": exists})
     return rows
+
+
+def _edited(deliveries, post):
+    """План с правками со страницы проверки: снятые галочкой машины и позиции не загружаются."""
+    def text(key, old, limit):
+        value = post.get(key)
+        return old if value is None else " ".join(value.split())[:limit]
+
+    def day(key, old):
+        try:
+            return date.fromisoformat(post.get(key, "")).isoformat()
+        except ValueError:
+            return old
+
+    out = []
+    for i, d in enumerate(deliveries):
+        if post.get(f"r{i}-keep") != "1":
+            continue
+        p = f"r{i}-"
+        d = {**d, "date_from": day(p + "date_from", d["date_from"]), "date_to": day(p + "date_to", d["date_to"])}
+        d["date_to"] = max(d["date_to"], d["date_from"])
+        d["truck_plate"] = normalize_plate(text(p + "truck_plate", d["truck_plate"], 20))
+        d["trailer_plate"] = normalize_plate(text(p + "trailer_plate", d["trailer_plate"], 20))
+        d["driver_name"] = text(p + "driver_name", d["driver_name"], 200)
+        d["contact_phone"] = text(p + "contact_phone", d.get("contact_phone", ""), 200)
+        items = []
+        for j, it in enumerate(d["items"]):
+            q = f"{p}i{j}-"
+            if post.get(q + "keep") != "1":
+                continue
+            items.append({**it, "abp": text(q + "abp", it["abp"], 50), "name": text(q + "name", it["name"], 2000) or it["name"],
+                          "quantity": text(q + "quantity", it["quantity"], 100),
+                          "contract": text(q + "contract", it["contract"], 300)})
+        if items:
+            out.append({**d, "items": items})
+    return out
 
 
 @role_required(*EDITORS)
@@ -194,16 +229,21 @@ def import_preview(request):
         if request.POST.get("action") == "cancel":
             request.session.pop(PREVIEW_KEY, None)
             return redirect("delivery_import")
-        stats = apply_plan(data["deliveries"], request.user)
+        deliveries = _edited(data["deliveries"], request.POST)
+        if not deliveries:
+            messages.warning(request, _("Все машины сняты — загружать нечего."))
+            return redirect("delivery_import_preview")
+        stats = apply_plan(deliveries, request.user)
         request.session.pop(PREVIEW_KEY, None)
         log_action(request, AuditLog.Action.DELIVERY_IMPORT, None,
                    {"файл": data["file"], "новых машин": stats["created"], "обновлено": stats["updated"],
-                    "новых позиций": stats["items"]}, object_repr=data["file"])
+                    "новых позиций": stats["items"], "снято при проверке": len(data["deliveries"]) - len(deliveries)},
+                   object_repr=data["file"])
         messages.success(request, _("План загружен: новых машин — %(c)s, обновлено — %(u)s, новых позиций груза — %(i)s.")
                          % {"c": stats["created"], "u": stats["updated"], "i": stats["items"]})
-        first = min((d["date_from"] for d in data["deliveries"]), default=None)
+        first = min(d["date_from"] for d in deliveries)
         today = timezone.localdate().isoformat()
-        return redirect(reverse("delivery_board") + f"?day={max(first, today) if first else today}")
+        return redirect(reverse("delivery_board") + f"?day={max(first, today)}")
     rows = _preview_rows(data["deliveries"])
     return render(request, "deliveries/import_preview.html", {
         "file": data["file"], "rows": rows, "warnings": data["warnings"],

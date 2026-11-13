@@ -42,6 +42,16 @@ def _snapshot(obj, fields):
     return data
 
 
+def _self_approving(user):
+    """Начальник штаба вносит людей сам — без согласования, сразу на КПП."""
+    return user.role == R.CHIEF or user.is_admin_role
+
+
+def _own_requests(user):
+    """«Мои заявки»: начальник видит здесь только внесённые им самим (остальные — в «Согласовании»)."""
+    return _requests_qs(user).filter(author=user) if user.role == R.CHIEF else _requests_qs(user)
+
+
 def _requests_qs(user):
     qs = Request.objects.select_related("author").prefetch_related(
         Prefetch("visitors", queryset=Visitor.objects.select_related("organization", "request", "arrival_trip", "departure_trip")),
@@ -50,9 +60,9 @@ def _requests_qs(user):
     return qs if user.has_role(R.CHIEF) else qs.filter(author=user)
 
 
-@role_required(R.APPLICANT)
+@role_required(R.APPLICANT, R.CHIEF)
 def request_list(request):
-    qs = _requests_qs(request.user)
+    qs = _own_requests(request.user)
     show = request.GET.get("show", "current")
     q = request.GET.get("q", "").strip()
     today = timezone.localdate()
@@ -85,7 +95,7 @@ def request_detail(request, pk):
     return render(request, "visits/request_detail.html", {
         "req": req, "visitors": visitors, "history": history, "cargo": cargo,
         # Начальник штаба смотрит и согласует, но не правит чужие заявки.
-        "can_edit": req.can_be_edited and user.has_role(R.APPLICANT) and (req.author_id == user.pk or user.is_admin_role),
+        "can_edit": req.can_be_edited and (req.author_id == user.pk or user.is_admin_role),
         "can_decide": req.is_pending and not req.is_cancelled and is_chief,
         "can_revoke": req.is_approved and not req.is_cancelled and is_chief,
         "is_chief": is_chief,
@@ -96,16 +106,16 @@ def request_detail(request, pk):
     })
 
 
-@role_required(R.APPLICANT)
+@role_required(R.APPLICANT, R.CHIEF)
 def request_create(request):
     user = request.user
     req = Request(author=user, contact_name=user.full_name, contact_phone=user.phone)
     return _request_form(request, req)
 
 
-@role_required(R.APPLICANT)
+@role_required(R.APPLICANT, R.CHIEF)
 def request_edit(request, pk):
-    req = get_object_or_404(_requests_qs(request.user), pk=pk)
+    req = get_object_or_404(_own_requests(request.user), pk=pk)
     if not req.can_be_edited:
         messages.error(request, _("Отменённую заявку нельзя изменить."))
         return redirect("request_detail", pk=req.pk)
@@ -138,6 +148,14 @@ def _request_form(request, req):
             elif cargo_trip and not cargo_form.is_locked:
                 services.delete_cargo(cargo_trip, request.user, request=request)
             resubmitted = not is_new and services.resubmit_if_rejected(req, request.user, request=request)
+            self_approved = (is_new or resubmitted) and _self_approving(request.user)
+            if self_approved:
+                req, _struck = services.approve_request(req, request.user, request=request)
+        if self_approved:
+            notify_request(req, "approve")
+            messages.success(request, _("Заявка №%(n)s внесена и сразу согласована — люди уже видны охране на КПП.")
+                             % {"n": req.number})
+            return redirect("request_detail", pk=req.pk)
         if is_new or resubmitted:
             notify_request(req, "create" if is_new else "resubmit")
         elif report or form.has_changed() or cargo_form.has_changed():
@@ -161,6 +179,7 @@ def _request_form(request, req):
         "is_new": is_new,
         "organizations": Organization.objects.values_list("name", flat=True),
         "import_form": ImportForm(),
+        "self_approving": _self_approving(request.user),
     })
 
 
@@ -247,9 +266,9 @@ def _save_visitors(request, req, formset):
 
 
 @require_POST
-@role_required(R.APPLICANT)
+@role_required(R.APPLICANT, R.CHIEF)
 def request_cancel(request, pk):
-    req = get_object_or_404(_requests_qs(request.user), pk=pk)
+    req = get_object_or_404(_own_requests(request.user), pk=pk)
     cancelled = services.cancel_request(req, request.user, request)
     notify_request(req, "cancel")
     if cancelled:
@@ -283,7 +302,7 @@ def cargo_file(request, pk):
 
 
 @require_POST
-@role_required(R.APPLICANT)
+@role_required(R.APPLICANT, R.CHIEF)
 def import_parse(request):
     form = ImportForm(request.POST, request.FILES)
     if not form.is_valid():
@@ -293,7 +312,7 @@ def import_parse(request):
     return JsonResponse({"rows": rows, "errors": errors})
 
 
-@role_required(R.APPLICANT)
+@role_required(R.APPLICANT, R.CHIEF)
 def import_template(request):
     return excel.import_template()
 

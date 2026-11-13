@@ -30,6 +30,7 @@ urlpatterns = [
     path("bans/", views.ban_list, name="ban_list"),
     path("bans/<int:pk>/lift/", views.ban_lift, name="ban_lift"),
     path("kpp/", views.kpp, name="kpp"),
+    path("kpp/scan/", views.kpp_scan, name="kpp_scan"),
     re_path(r"^kpp/(?P<pk>\d+)/(?P<action>arrive|depart|undo)/$", views.kpp_action, name="kpp_action"),
     re_path(r"^kpp/trip/(?P<pk>\d+)/(?P<action>enter|exit|undo|passengers)/$", views.kpp_trip_action, name="kpp_trip_action"),
     path("dispatch/", views.dispatch, name="dispatch"),

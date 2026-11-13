@@ -2,9 +2,11 @@
 {% block title %}{% if is_new %}{% translate "Новая заявка" %}{% else %}{% translate "Заявка" %} №{{ req.number }}{% endif %}{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h1>{% if is_new %}{% translate "Новая заявка" %}{% else %}{% translate "Изменение заявки" %} №{{ req.number }}{% endif %}</h1>
+  <h1>{% if is_new and self_approving %}{% translate "Внести людей" %}{% elif is_new %}{% translate "Новая заявка" %}{% else %}{% translate "Изменение заявки" %} №{{ req.number }}{% endif %}</h1>
   {% if not is_new %}<a class="btn" href="{% url 'request_detail' req.pk %}">{% translate "Назад" %}</a>{% endif %}
 </div>
+
+{% if self_approving and is_new %}<div class="approval-line approved">{% translate "Вы вносите людей как начальник штаба: заявка сохранится сразу согласованной, охрана КПП увидит людей без отдельного согласования." %}</div>{% endif %}
 
 <form method="post" id="request-form" enctype="multipart/form-data" novalidate>
   {% csrf_token %}

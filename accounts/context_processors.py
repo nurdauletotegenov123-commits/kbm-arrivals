@@ -23,6 +23,7 @@ def nav(request):
         add([R.CHIEF], "monitor", _("Обстановка"))
     add([R.CHIEF], "approval_list", _("Согласование"))
     if user.role == R.CHIEF:
+        add([R.CHIEF], "request_list", _("Внести людей"))
         add([R.CHIEF], "people_search", _("Проверка"))
         add([R.CHIEF], "ban_list", _("Запрет въезда"))
     add([R.APPLICANT], "request_list", _("Заявки"))

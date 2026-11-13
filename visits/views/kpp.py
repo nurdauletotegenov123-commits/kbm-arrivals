@@ -108,6 +108,11 @@ def kpp(request):
     })
 
 
+@role_required(R.SECURITY)
+def kpp_scan(request):
+    return render(request, "visits/scan.html")
+
+
 ACTIONS = {
     "arrive": (services.mark_arrived, _("прибыл(а)")),
     "depart": (services.mark_departed, _("убыл(а)")),

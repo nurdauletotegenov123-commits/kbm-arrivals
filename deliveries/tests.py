@@ -105,9 +105,40 @@ class ViewTests(Base):
         resp = self.client.get(reverse("delivery_import_preview"))
         self.assertContains(resp, "046LEX15")
         self.assertEqual(Delivery.objects.count(), 0)  # до подтверждения ничего не загружено
-        self.client.post(reverse("delivery_import_preview"), {"action": "apply"})
+        self.client.post(reverse("delivery_import_preview"), self.keep_all())
         self.assertEqual(Delivery.objects.count(), 5)
         self.assertTrue(AuditLog.objects.filter(action=AuditLog.Action.DELIVERY_IMPORT).exists())
+
+    def keep_all(self):
+        deliveries = self.client.session["delivery_import"]["deliveries"]
+        data = {"action": "apply"}
+        for i, d in enumerate(deliveries):
+            data[f"r{i}-keep"] = "1"
+            for j, _it in enumerate(d["items"]):
+                data[f"r{i}-i{j}-keep"] = "1"
+        return data
+
+    def test_import_preview_edit_and_drop(self):
+        self.client.force_login(self.supply)
+        self.client.post(reverse("delivery_import"), {"file": SimpleUploadedFile("plan.xlsx", sample.build(self.today).read())})
+        data = self.keep_all()
+        del data["r1-keep"]  # вторая машина (808XXA17) не нужна
+        del data["r0-i1-keep"]  # у первой убрали муфты
+        data.update({"r0-truck_plate": "046lex 15", "r0-driver_name": "Сейткалиев Ерлан",
+                     "r0-date_to": (self.today + timedelta(days=4)).isoformat(), "r0-i0-quantity": "700 шт"})
+        self.client.post(reverse("delivery_import_preview"), data)
+        self.assertEqual(Delivery.objects.count(), 4)
+        self.assertFalse(Delivery.objects.filter(truck_plate="808XXA17").exists())
+        d = Delivery.objects.get(truck_plate="046LEX15")
+        self.assertEqual((d.driver_name, d.date_to), ("Сейткалиев Ерлан", self.today + timedelta(days=4)))
+        self.assertEqual([(i.name[:6], i.quantity) for i in d.items.all()], [("Штанга", "700 шт")])
+
+    def test_import_preview_nothing_left(self):
+        self.client.force_login(self.supply)
+        self.client.post(reverse("delivery_import"), {"file": SimpleUploadedFile("plan.xlsx", sample.build(self.today).read())})
+        resp = self.client.post(reverse("delivery_import_preview"), {"action": "apply"})
+        self.assertRedirects(resp, reverse("delivery_import_preview"))
+        self.assertEqual(Delivery.objects.count(), 0)
 
     def test_bad_file(self):
         self.client.force_login(self.supply)

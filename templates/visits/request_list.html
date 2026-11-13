@@ -3,8 +3,8 @@
 {% block content %}
 {% translate "Получайте в Telegram решение по заявке и данные машины" as tg_text %}{% include "includes/telegram_hint.html" with text=tg_text %}
 <div class="page-head">
-  <h1>{% if user.is_admin_role %}{% translate "Все заявки" %}{% else %}{% translate "Мои заявки" %}{% endif %}</h1>
-  <a class="btn btn-primary btn-big" href="{% url 'request_create' %}">+ {% translate "Новая заявка" %}</a>
+  <h1>{% if user.is_admin_role %}{% translate "Все заявки" %}{% elif user.role == "chief" %}{% translate "Внесены мной" %}{% else %}{% translate "Мои заявки" %}{% endif %}</h1>
+  <a class="btn btn-primary btn-big" href="{% url 'request_create' %}">+ {% if user.role == "chief" %}{% translate "Внести людей" %}{% else %}{% translate "Новая заявка" %}{% endif %}</a>
 </div>
 <nav class="tabs">
   <a href="?show=current" class="{% if show == 'current' %}active{% endif %}">{% translate "Актуальные" %}</a>

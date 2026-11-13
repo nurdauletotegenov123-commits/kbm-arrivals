@@ -79,6 +79,33 @@ class RequestFormTests(Base):
         # ИИН не пишется в журнал
         self.assertNotIn("900101300123", str(list(AuditLog.objects.values_list("changes", flat=True))))
 
+    def test_chief_adds_people_without_approval(self):
+        chief = make_user("boss", R.CHIEF)
+        self.login(chief)
+        self.assertEqual(self.client.get(reverse("request_create")).status_code, 200)
+        resp = self.client.post(reverse("request_create"), self.post_data())
+        req = Request.objects.get()
+        self.assertRedirects(resp, reverse("request_detail", args=[req.pk]))
+        self.assertEqual((req.approval, req.approved_by), (Request.Approval.APPROVED, chief))
+        self.assertTrue(Visitor.objects.ready().filter(request=req).exists())  # сразу на КПП
+        self.assertContains(self.client.get(reverse("request_list")), reverse("request_detail", args=[req.pk]))
+        # чужие заявки в «Внесены мной» не попадают
+        self.visitor()
+        self.assertEqual(self.client.get(reverse("request_list")).context["page"].paginator.count, 1)
+
+    def test_applicant_request_still_needs_approval(self):
+        self.login(self.applicant)
+        self.client.post(reverse("request_create"), self.post_data())
+        self.assertEqual(Request.objects.get().approval, Request.Approval.PENDING)
+
+    def test_kpp_scanner_page(self):
+        self.login(self.security)
+        resp = self.client.get(reverse("kpp_scan"))
+        self.assertContains(resp, "jsQR.js")
+        self.assertContains(self.client.get(reverse("kpp")), reverse("kpp_scan"))
+        self.login(self.applicant)
+        self.assertEqual(self.client.get(reverse("kpp_scan")).status_code, 403)
+
     def test_one_day_disables_camp_and_sets_departure(self):
         self.login(self.applicant)
         self.client.post(reverse("request_create"), self.post_data(one_day=True, needs_camp=True, departure_date=""))
